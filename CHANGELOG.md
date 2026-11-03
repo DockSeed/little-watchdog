@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-03
+
 ### Upgrade note
 
 - If a dead-man switch is set up, one message "dead-man switch is active, first

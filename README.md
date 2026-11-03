@@ -27,8 +27,8 @@ handful of checks, 15 MB with 40), no web interface, no open port. Linux with sy
 On Debian, Ubuntu or Raspberry Pi OS:
 
 ```sh
-wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.1.0/little-watchdog_0.1.0_$(dpkg --print-architecture).deb
-sudo apt install ./little-watchdog_0.1.0_*.deb
+wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.2.0/little-watchdog_0.2.0_$(dpkg --print-architecture).deb
+sudo apt install ./little-watchdog_0.2.0_*.deb
 ```
 
 Then log out and in again (close an SSH session completely, a new shell is not
@@ -49,7 +49,7 @@ Not needed for the packages above.
 
 ```sh
 go test -race ./...
-scripts/build.sh 0.1.0      # all packages in ./dist, same bytes every time
+scripts/build.sh 0.2.0      # all packages in ./dist, same bytes every time
 ```
 
 ## Who wrote this

@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+#
+# Creates the user and the config directory, starts the service and puts the
+# person who ran sudo into the config group. Never fails because systemd is
+# not running (container, chroot).
+set -e
+
+[ "$1" = configure ] || exit 0
+
+if command -v systemd-sysusers >/dev/null 2>&1; then
+	systemd-sysusers /usr/lib/sysusers.d/little-wd.conf ||
+		echo "little-watchdog: warning: could not create the user little-wd" >&2
+fi
+if command -v systemd-tmpfiles >/dev/null 2>&1; then
+	systemd-tmpfiles --create /usr/lib/tmpfiles.d/little-wd.conf ||
+		echo "little-watchdog: warning: could not create /etc/little-watchdog" >&2
+fi
+
+# prerm leaves this file when it disables the service because of "remove", so that
+# installing the package again (dpkg then passes the old version in $2, as for an
+# upgrade) turns the service on again. A service the admin disabled by hand stays off.
+marker=/etc/little-watchdog/.enable-on-install
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+	if [ -z "$2" ] || [ -e "$marker" ]; then
+		systemctl enable --now little-watchdog.service || true # new install, or back after remove
+		rm -f "$marker"
+	else
+		systemctl try-restart little-watchdog.service || true # upgrade
+	fi
+fi
+
+user=${SUDO_USER:-}
+if [ -n "$user" ] && [ "$user" != root ] && getent passwd "$user" >/dev/null 2>&1; then
+	if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx little-wd; then
+		:
+	elif usermod -aG little-wd "$user" 2>/dev/null; then
+		echo "little-watchdog: added $user to the group little-wd."
+		echo "little-watchdog: log out and in again, then run: little-wd"
+	fi
+else
+	echo "little-watchdog: to set it up, add your user to the group, log out and in again,"
+	echo "little-watchdog: then run little-wd:  sudo usermod -aG little-wd YOUR_USER"
+fi
+exit 0

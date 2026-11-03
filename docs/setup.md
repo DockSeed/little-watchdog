@@ -1,0 +1,77 @@
+# Setup
+
+## 1. Install
+
+Download the `.deb` for your device from the
+[releases](https://github.com/DockSeed/little-watchdog/releases), nowhere else:
+
+| Device | File |
+|---|---|
+| Raspberry Pi 3, 4, 5 with 64-bit system, other 64-bit boards | `_arm64.deb` |
+| Raspberry Pi Zero, 1, 2, 3 with 32-bit system | `_armhf.deb` |
+| PC, VM, server | `_amd64.deb` |
+
+Not sure? `dpkg --print-architecture` tells you.
+
+Check the download (`allowed_signers` from the repository, compare it with
+https://dockseed.de):
+
+```sh
+sha256sum -c --ignore-missing SHA256SUMS
+ssh-keygen -Y verify -f allowed_signers -I release@little-watchdog -n file -s SHA256SUMS.sig < SHA256SUMS
+```
+
+Install, then log out and in again:
+
+```sh
+sudo apt install ./little-watchdog_0.1.0_arm64.deb
+```
+
+Other distributions: unpack the `.tar.gz` and run `sudo ./install.sh`.
+
+## 2. Telegram bot
+
+1. Install Telegram from [telegram.org/apps](https://telegram.org/apps) and
+   create an account.
+2. Open a chat with **@BotFather**, send `/newbot`, choose a name. You get a
+   **token**. Keep it secret: whoever has it can send as your bot.
+3. Open a chat with your new bot and press **Start**.
+4. Run `little-wd`, choose **Telegram**, paste the token, and send the shown
+   `/start CODE` to your bot. A test message confirms it.
+
+For a group: add the bot to the group and send `/start@your_bot CODE` there.
+Use a separate bot for the watchdog. If the token leaks, revoke it with
+@BotFather and paste the new one.
+
+## 3. Checks
+
+In `little-wd` choose **Add check**: a website, a port or a host. The own
+machine (disk, memory, temperature, CPU) is watched by default. `?` shows the
+keys. Hand editing: [config.md](config.md).
+
+## 4. Dead-man's-switch (recommended)
+
+little-watchdog pings a URL every 2 minutes. If the pings stop, because the
+machine or the watchdog died, [Healthchecks.io](https://healthchecks.io) alarms
+you. It has a free plan and can also be self-hosted.
+
+1. Create an account and a check.
+2. Set **Period** to 2 minutes and **Grace Time** to at least 4 minutes.
+3. Copy the ping URL (keep it secret) and paste it in `little-wd` under
+   **Dead-man switch**.
+4. In Healthchecks, set up a notification other than Telegram, for example
+   email.
+
+If Telegram stays unusable, little-watchdog pings the URL with `/fail`.
+
+## Update and remove
+
+Update: install the newer `.deb`. Remove: `sudo apt remove little-watchdog`
+(`purge` also deletes the config with the bot token). Tar.gz:
+`sudo ./install.sh --uninstall [--purge]`.
+
+If nothing arrives: `journalctl -u little-watchdog -e`. The menu also says when
+the service is not running or your login lacks the group.
+
+Sources: [core.telegram.org/bots/tutorial](https://core.telegram.org/bots/tutorial),
+[healthchecks.io/docs](https://healthchecks.io/docs/)

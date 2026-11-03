@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+#
+# Stops and disables the service when the package is removed (not on upgrade).
+set -e
+
+case "$1" in
+remove | deconfigure)
+	if [ -d /run/systemd/system ]; then
+		# remember that it was on, for a later reinstall (see postinst)
+		if systemctl is-enabled --quiet little-watchdog.service 2>/dev/null && [ -d /etc/little-watchdog ]; then
+			touch /etc/little-watchdog/.enable-on-install
+		fi
+		systemctl disable --now little-watchdog.service || true
+	fi
+	;;
+esac
+exit 0

@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+
+[Unit]
+Description=little-watchdog homelab watchdog
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/little-wd run
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+
+# User and group come from sysusers.d/little-wd.conf; /etc/little-watchdog (setgid, group
+# little-wd) from tmpfiles.d/little-wd.conf. The daemon only reads the config, so
+# ProtectSystem=strict keeps /etc read-only for it although the group may write there.
+User=little-wd
+Group=little-wd
+StateDirectory=little-watchdog
+StateDirectoryMode=0750
+ProtectSystem=strict
+# read-only, not yes: with yes, a disk check on /home sees an empty tmpfs
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+# own, empty /dev/shm and SysV IPC, removed on stop: nothing shared, no place to hide state
+PrivateIPC=yes
+RemoveIPC=yes
+ProtectProc=invisible
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# no AF_UNIX: the resolver is pure Go and logging uses the inherited stderr
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# state and heartbeat get their mode explicitly
+UMask=0077
+LimitCORE=0
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

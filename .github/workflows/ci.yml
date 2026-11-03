@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+
+# On every push to main and every pull request: format, vet, tests with the race
+# detector, then the full release build (binaries, .deb, .tar.gz) built twice to
+# prove the bytes are the same, and a check of the packages. Nothing is
+# published and nothing is installed on the runner (no apt, no extra tools).
+# Supply chain: fixed runner image, only actions/* pinned by commit, an exact Go
+# version, no toolchain download (GOTOOLCHAIN=local), no module download
+# (-mod=readonly, and scripts/build.sh fails if go.mod has any dependency).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - name: Build twice
+        run: |
+          scripts/build.sh "0.0.0~ci.${GITHUB_SHA::8}" dist1
+          scripts/build.sh "0.0.0~ci.${GITHUB_SHA::8}" dist2
+      - name: Same bytes both times
+        run: diff dist1/SHA256SUMS dist2/SHA256SUMS
+      - name: Check the packages
+        run: scripts/check-packages.sh dist1
+      - name: Maintainer scripts through the package life cycle
+        run: scripts/test-maintainer-scripts.sh

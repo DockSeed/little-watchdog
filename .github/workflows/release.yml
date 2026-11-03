@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+
+# A tag vX.Y.Z builds the binaries, the .deb and .tar.gz files and SHA256SUMS and
+# creates a DRAFT release with the text of that version's CHANGELOG section.
+# Nothing is published. The workflow uploads only what it built itself. The
+# signature SHA256SUMS.sig is added later by a human after an independent
+# rebuild (scripts/verify-release.sh) - see SECURITY.md. The tag needs a
+# "## [X.Y.Z]" section in CHANGELOG.md, otherwise the run fails before building.
+# Same supply-chain rules as ci.yml; no caches here (cache poisoning).
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+
+jobs:
+  draft:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the draft release, nothing else
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - name: Release notes from the changelog
+        run: |
+          scripts/release-notes.sh "${TAG#v}" > notes.md
+          printf '\n---\nThe signature `SHA256SUMS.sig` is added after an independent rebuild. Until it is there, treat this as unverified.\n' >> notes.md
+      - name: Checks
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Build
+        run: scripts/build.sh "${TAG#v}" dist
+      - name: Check the packages
+        run: scripts/check-packages.sh dist
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }} # only this step may call the API
+        run: >
+          gh release create "$TAG" dist/little-wd_* dist/*.deb dist/*.tar.gz dist/SHA256SUMS
+          --repo "$GITHUB_REPOSITORY" --draft --verify-tag
+          --title "little-watchdog ${TAG#v}" --notes-file notes.md

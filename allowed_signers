@@ -1,0 +1,5 @@
+# Public keys that may sign releases of little-watchdog (SHA256SUMS.sig).
+# Format, one key per line (see ssh-keygen(1), ALLOWED SIGNERS):
+#   release@little-watchdog namespaces="file" <key-type> <base64-public-key>
+# Compare it with the copy on https://dockseed.de.
+release@little-watchdog namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfiG/NkVODMmCxsFvFuFtg8giTfyAmbnysUcSEw2X2+

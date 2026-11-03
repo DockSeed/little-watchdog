@@ -1,0 +1,11 @@
+version = 1
+SPDX-PackageName = "little-watchdog"
+SPDX-PackageDownloadLocation = "https://github.com/DockSeed/little-watchdog"
+
+# Source files carry their own SPDX header. Everything without one: docs,
+# metadata, test data and the module file.
+[[annotations]]
+path = ["README.md", "CHANGELOG.md", "SECURITY.md", "allowed_signers", "docs/**", ".gitignore", "go.mod", "internal/checks/testdata/**", "packaging/debian/copyright", "packaging/tarball/README.txt"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the little-watchdog contributors"
+SPDX-License-Identifier = "MIT"

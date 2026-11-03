@@ -1,0 +1,23 @@
+# Build products: the binary of `go build ./cmd/little-wd` and scripts/build.sh output.
+/little-wd
+/dist/
+/out/
+*.test
+*.out
+coverage*
+
+# Test artefacts (tests use t.TempDir(); these are for manual runs)
+*.env
+!contrib/*.env.example
+state.json
+state.json.alive
+*.pairing
+*.bak
+
+# Editor and tool leftovers
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+.DS_Store

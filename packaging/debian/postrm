@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: the little-watchdog contributors
+# SPDX-License-Identifier: MIT
+#
+# purge deletes the config (it holds the bot token) and the state. The user and
+# the group stay, as is usual for Debian packages.
+set -e
+
+case "$1" in
+remove | purge)
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	;;
+esac
+if [ "$1" = purge ]; then
+	rm -rf /etc/little-watchdog /var/lib/little-watchdog
+fi
+exit 0

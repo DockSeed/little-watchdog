@@ -1,0 +1,548 @@
+// SPDX-FileCopyrightText: the little-watchdog contributors
+// SPDX-License-Identifier: MIT
+
+// Package config parses the little-watchdog env file (KEY=value, # comments).
+// The file is never handed to a shell.
+package config
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net"
+	"net/url"
+	"os"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const (
+	DefaultPath = "/etc/little-watchdog/little-watchdog.env"
+	EnvPath     = "LITTLE_WATCHDOG_CONFIG"
+)
+
+// CheckSpec is one HTTP_/TCP_/HOST_ entry.
+type CheckSpec struct {
+	Name     string // lower-case check name
+	Type     string // "http", "tcp", "host"
+	Target   string // URL or host:port
+	Contains string // http only
+}
+
+type Config struct {
+	Token        string
+	ChatID       int64
+	APIURL       string
+	DeadmanURL   string
+	DeadmanEvery time.Duration
+	Interval     time.Duration
+	FailAfter    int
+	RecoverAfter int
+	Timeout      time.Duration
+	StateFile    string
+	Checks       []CheckSpec
+	DiskPaths    []string
+	DiskMinFree  float64
+	MemMinAvail  float64
+	TempMaxC     float64
+	TempSensor   string
+	CPUMaxPct    float64
+	CPUWindow    time.Duration
+
+	Warnings []string // non-fatal findings, to be logged by the caller
+}
+
+// Error is a fatal config problem with location.
+type Error struct {
+	Line int
+	Key  string
+	Msg  string
+}
+
+func (e *Error) Error() string {
+	if e.Key == "" && e.Line > 0 {
+		return fmt.Sprintf("config line %d: %s", e.Line, e.Msg)
+	}
+	if e.Line > 0 {
+		return fmt.Sprintf("config line %d: %s: %s", e.Line, e.Key, e.Msg)
+	}
+	return fmt.Sprintf("config: %s: %s", e.Key, e.Msg)
+}
+
+func Defaults() *Config {
+	return &Config{
+		APIURL:       "https://api.telegram.org",
+		DeadmanEvery: 2 * time.Minute,
+		Interval:     60 * time.Second,
+		FailAfter:    3,
+		RecoverAfter: 2,
+		Timeout:      10 * time.Second,
+		StateFile:    "/var/lib/little-watchdog/state.json",
+		DiskPaths:    []string{"/"},
+		DiskMinFree:  10,
+		MemMinAvail:  5,
+		TempMaxC:     85,
+		CPUMaxPct:    90,
+		CPUWindow:    15 * time.Minute,
+	}
+}
+
+var nameRe = regexp.MustCompile(`^[A-Z0-9_]+$`)
+
+// Resolve picks the config path: flag value, then env, then default.
+func Resolve(flagVal string) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	if v := os.Getenv(EnvPath); v != "" {
+		return v
+	}
+	return DefaultPath
+}
+
+// Load reads and parses path and warns about loose permissions.
+func Load(path string, requireTelegram bool) (*Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	cfg, err := Parse(f, requireTelegram)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := f.Stat(); err == nil {
+		if w := PermWarning(path, st); w != "" {
+			cfg.Warnings = append(cfg.Warnings, w)
+		}
+	}
+	return cfg, nil
+}
+
+// Group may edit the config; variable so tests need no such group.
+var Group = "little-wd"
+
+// PermWarning reports a mode that lets others read the token: any "other" bit,
+// or group bits while the file's group is not Group.
+func PermWarning(path string, st os.FileInfo) string {
+	m := st.Mode().Perm()
+	if m&0o007 != 0 {
+		return fmt.Sprintf("%s has mode %04o, readable by others (it contains the bot token)", path, m)
+	}
+	if m&0o070 == 0 {
+		return ""
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		if g, err := user.LookupGroup(Group); err == nil && strconv.Itoa(int(sys.Gid)) == g.Gid {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%s has mode %04o, readable by a group other than %s (it contains the bot token)", path, m, Group)
+}
+
+func parseURL(v string) error {
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("invalid URL %s (expected http:// or https:// URL)", redactURL(v))
+	}
+	return nil
+}
+
+// parseSecureURL is parseURL for URLs that carry a secret: https, or http only to this machine.
+func parseSecureURL(v string) error {
+	if err := parseURL(v); err != nil {
+		return err
+	}
+	u, _ := url.Parse(v)
+	if u.Scheme == "https" || isLoopback(u.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("URL %s must be https:// (http only to localhost): it carries a secret", redactURL(v))
+}
+
+func isLoopback(h string) bool {
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
+// redactURL hides anything after the scheme://host part (may hold secrets).
+func redactURL(v string) string {
+	u, err := url.Parse(v)
+	if err != nil || u.Host == "" {
+		return "<unparsable>"
+	}
+	return u.Scheme + "://" + u.Host + "/..."
+}
+
+// Parse reads the env syntax from r.
+func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
+	c := Defaults()
+	lines := map[string]int{}
+	seen := map[string]string{} // check name -> type
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1<<20)
+	n := 0
+	for sc.Scan() {
+		n++
+		line := sc.Text()
+		if n == 1 {
+			line = strings.TrimPrefix(line, "\xef\xbb\xbf")
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if !ok || !nameRe.MatchString(key) {
+			return nil, &Error{Line: n, Msg: "expected KEY=value"}
+		}
+		if prev, dup := lines[key]; dup {
+			c.Warnings = append(c.Warnings, fmt.Sprintf("line %d: duplicate key %s (line %d), the last one wins", n, key, prev))
+		}
+		lines[key] = n
+		bad := func(format string, a ...any) error {
+			msg := fmt.Sprintf(format, a...)
+			if strings.Contains(val, "#") {
+				msg += " (comments are only allowed at the start of a line)"
+			}
+			return &Error{n, key, msg}
+		}
+		var err error
+		switch {
+		case key == "TELEGRAM_TOKEN":
+			if !strings.Contains(val, ":") || strings.ContainsAny(val, " \t/?#") {
+				return nil, bad("invalid token (expected 123456:ABC...)")
+			}
+			c.Token = val
+		case key == "TELEGRAM_CHAT_ID":
+			c.ChatID, err = strconv.ParseInt(val, 10, 64)
+			if err != nil || c.ChatID == 0 {
+				return nil, bad("invalid chat id (expected integer, negative for groups)")
+			}
+		case key == "TELEGRAM_API_URL":
+			if err = parseSecureURL(val); err != nil {
+				return nil, bad("%v", err)
+			}
+			c.APIURL = strings.TrimRight(val, "/")
+		case key == "DEADMAN_URL":
+			if val != "" {
+				if err = parseSecureURL(val); err != nil {
+					return nil, bad("%v", err)
+				}
+			}
+			c.DeadmanURL = val
+		case key == "DEADMAN_EVERY":
+			c.DeadmanEvery, err = time.ParseDuration(val)
+			if err != nil || c.DeadmanEvery < time.Minute {
+				return nil, bad("invalid value (expected duration like 2m, min 60s)")
+			}
+		case key == "INTERVAL":
+			c.Interval, err = time.ParseDuration(val)
+			if err != nil || c.Interval < 10*time.Second {
+				return nil, bad("invalid value (expected duration like 60s, min 10s)")
+			}
+		case key == "TIMEOUT":
+			c.Timeout, err = time.ParseDuration(val)
+			if err != nil || c.Timeout <= 0 || c.Timeout > 10*time.Minute {
+				return nil, bad("invalid value (expected duration like 10s, max 10m)")
+			}
+		case key == "CPU_WINDOW":
+			c.CPUWindow, err = time.ParseDuration(val)
+			if err != nil || c.CPUWindow <= 0 {
+				return nil, bad("invalid value (expected duration like 15m)")
+			}
+		case key == "FAIL_AFTER":
+			c.FailAfter, err = strconv.Atoi(val)
+			if err != nil || c.FailAfter < 1 {
+				return nil, bad("invalid value (expected integer >= 1)")
+			}
+		case key == "RECOVER_AFTER":
+			c.RecoverAfter, err = strconv.Atoi(val)
+			if err != nil || c.RecoverAfter < 1 {
+				return nil, bad("invalid value (expected integer >= 1)")
+			}
+		case key == "STATE_FILE":
+			if !strings.HasPrefix(val, "/") {
+				return nil, bad("expected absolute path")
+			}
+			c.StateFile = val
+		case key == "DISK_PATHS":
+			c.DiskPaths = nil
+			for _, p := range strings.Split(val, ",") {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				if !strings.HasPrefix(p, "/") {
+					return nil, bad("path is not absolute (expected /a,/b)")
+				}
+				if p = filepath.Clean(p); !slices.Contains(c.DiskPaths, p) { // "/data" and "/data/" are one disk
+					c.DiskPaths = append(c.DiskPaths, p)
+				}
+			}
+		case key == "DISK_MIN_FREE_PCT":
+			c.DiskMinFree, err = pct(val, 0, 100)
+			if err != nil {
+				return nil, bad("%v", err)
+			}
+		case key == "MEM_MIN_AVAIL_PCT":
+			c.MemMinAvail, err = pct(val, 0, 100)
+			if err != nil {
+				return nil, bad("%v", err)
+			}
+		case key == "TEMP_MAX_C":
+			c.TempMaxC, err = pct(val, 0, 200)
+			if err != nil {
+				return nil, bad("%v", err)
+			}
+		case key == "TEMP_SENSOR":
+			if val != "" {
+				val = filepath.Clean(val)
+				if !tempSensorOK(val) {
+					return nil, bad("expected a path under /sys/class/thermal/, /sys/class/hwmon/ or /sys/devices/ (a .../temp file)")
+				}
+			}
+			c.TempSensor = val
+		case key == "CPU_MAX_PCT":
+			c.CPUMaxPct, err = pct(val, 0, 100)
+			if err != nil {
+				return nil, bad("%v", err)
+			}
+		case strings.HasPrefix(key, "HTTP_"), strings.HasPrefix(key, "TCP_"), strings.HasPrefix(key, "HOST_"):
+			typ, _, _ := strings.Cut(key, "_")
+			typ = strings.ToLower(typ)
+			name := strings.ToLower(key[len(typ)+1:])
+			if name == "" {
+				return nil, bad("missing check name after prefix")
+			}
+			if prev, dup := seen[name]; dup {
+				return nil, bad("check name %q already used by a %s check", name, prev)
+			}
+			spec := CheckSpec{Name: name, Type: typ}
+			if typ == "http" {
+				u, rest, _ := strings.Cut(val, " ")
+				if err = parseURL(u); err != nil {
+					return nil, bad("%v (expected `url` or `url contains=TEXT`)", err)
+				}
+				spec.Target = u
+				rest = strings.TrimSpace(rest)
+				if rest != "" {
+					t, ok := strings.CutPrefix(rest, "contains=")
+					if !ok || t == "" {
+						return nil, bad("unexpected text after the URL (expected `url` or `url contains=TEXT`)")
+					}
+					spec.Contains = t
+				}
+			} else {
+				if err = hostPort(val); err != nil {
+					return nil, bad("%v", err)
+				}
+				spec.Target = val
+			}
+			seen[name] = typ
+			c.Checks = append(c.Checks, spec)
+		default:
+			c.Warnings = append(c.Warnings, fmt.Sprintf("line %d: unknown key %s ignored", n, key))
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if requireTelegram {
+		if c.Token == "" {
+			return nil, &Error{Key: "TELEGRAM_TOKEN", Msg: "required"}
+		}
+		if c.ChatID == 0 {
+			return nil, &Error{Key: "TELEGRAM_CHAT_ID", Msg: "required"}
+		}
+	}
+	if c.CPUWindow < c.Interval {
+		return nil, &Error{Line: lines["CPU_WINDOW"], Key: "CPU_WINDOW", Msg: "must be at least INTERVAL"}
+	}
+	return c, nil
+}
+
+func tempSensorOK(p string) bool {
+	for _, pre := range []string{"/sys/class/thermal/", "/sys/class/hwmon/", "/sys/devices/"} {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+func pct(v string, lo, hi float64) (float64, error) {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < lo || f > hi {
+		return 0, fmt.Errorf("invalid value (expected number %g..%g)", lo, hi)
+	}
+	return f, nil
+}
+
+func hostPort(v string) error {
+	i := strings.LastIndex(v, ":")
+	if i <= 0 || i == len(v)-1 {
+		return errors.New("invalid value (expected host:port)")
+	}
+	p, err := strconv.Atoi(v[i+1:])
+	if err != nil || p < 1 || p > 65535 {
+		return errors.New("invalid port (expected 1..65535)")
+	}
+	if strings.ContainsAny(v[:i], " \t/") {
+		return errors.New("invalid host (expected host:port)")
+	}
+	return nil
+}
+
+// ParallelChecks is how many checks run at the same time.
+const ParallelChecks = 24
+
+// rounds is the number of checks a round runs (services plus the machine's own).
+func (c *Config) rounds() int {
+	n := len(c.Checks) + 3
+	if c.DiskMinFree > 0 {
+		n += len(c.DiskPaths)
+	}
+	return n
+}
+
+// RoundMax is the longest a round of checks can take: each wave of parallel
+// checks may need TIMEOUT plus the 0.5 s grace.
+func (c *Config) RoundMax() time.Duration {
+	waves := (c.rounds() + ParallelChecks - 1) / ParallelChecks
+	return time.Duration(waves) * (c.Timeout + 500*time.Millisecond)
+}
+
+// StaleAfter is how old a heartbeat may get before the daemon counts as dead:
+// two intervals plus the longest round, plus a margin.
+func (c *Config) StaleAfter() time.Duration {
+	return 2*c.Interval + c.RoundMax() + 30*time.Second
+}
+
+// Hooks for the group lookup; tests replace them.
+var (
+	GroupFile     = "/etc/group"
+	CurrentUser   = func() string { return currentUser() }
+	ProcessGroups = os.Getgroups
+)
+
+func currentUser() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	if n := os.Getenv("USER"); n != "" {
+		return n
+	}
+	return "YOUR_USER"
+}
+
+// groupMembers returns the gid and member list of Group from GroupFile.
+func groupMembers() (gid int, members []string, ok bool) {
+	b, err := os.ReadFile(GroupFile)
+	if err != nil {
+		return 0, nil, false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Split(l, ":")
+		if len(f) >= 4 && f[0] == Group {
+			g, err := strconv.Atoi(f[2])
+			return g, strings.Split(f[3], ","), err == nil
+		}
+	}
+	return 0, nil, false
+}
+
+// LenientStateFile returns STATE_FILE from a config that may be invalid elsewhere, or def.
+func LenientStateFile(path, def string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return def
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(l), "="); ok && strings.TrimSpace(k) == "STATE_FILE" {
+			if v = strings.TrimSpace(v); strings.HasPrefix(v, "/") {
+				def = v
+			}
+		}
+	}
+	return def
+}
+
+// NeedGroupText says what to do to get write access to the config: the exact
+// command, or, if the group database already lists the user, to log in again.
+func NeedGroupText() string {
+	name := CurrentUser()
+	if gid, members, ok := groupMembers(); ok {
+		active := os.Getgid() == gid
+		if gs, err := ProcessGroups(); err == nil {
+			for _, g := range gs {
+				active = active || g == gid
+			}
+		}
+		for _, m := range members {
+			if m == name && !active {
+				return "you are in the group " + Group + ", but this login does not know it yet: log out and in again, then run little-wd"
+			}
+		}
+	}
+	return "needs group " + Group + ": sudo usermod -aG " + Group + " " + name + ", then log out and in again"
+}
+
+// PairingMarker is the file the setup creates while it polls the bot, so the daemon steps aside.
+func PairingMarker(path string) string { return path + ".pairing" }
+
+const pairingMaxAge = 15 * time.Minute
+
+// MarkPairing creates the marker; release removes it.
+func MarkPairing(path string) (release func(), err error) {
+	p := PairingMarker(path)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o660)
+	if err != nil {
+		return func() {}, err
+	}
+	f.Close()
+	return func() { os.Remove(p) }, nil
+}
+
+// PairingActive reports a recent marker (an old one is a crashed setup and ignored).
+func PairingActive(path string, now time.Time) bool {
+	st, err := os.Stat(PairingMarker(path))
+	return err == nil && now.Sub(st.ModTime()) < pairingMaxAge
+}
+
+// TelegramOnly reads just token and chat id, ignoring every other line; for a notice when the rest is invalid.
+func TelegramOnly(path string) (token string, chat int64, api string) {
+	api = Defaults().APIURL
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", 0, api
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), "=")
+		switch {
+		case !ok:
+		case strings.TrimSpace(k) == "TELEGRAM_TOKEN":
+			token = strings.TrimSpace(v)
+		case strings.TrimSpace(k) == "TELEGRAM_API_URL":
+			if v = strings.TrimSpace(v); parseSecureURL(v) == nil {
+				api = strings.TrimRight(v, "/")
+			}
+		case strings.TrimSpace(k) == "TELEGRAM_CHAT_ID":
+			chat, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		}
+	}
+	return
+}

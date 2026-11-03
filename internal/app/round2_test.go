@@ -128,16 +128,22 @@ func TestConflictKind(t *testing.T) {
 }
 
 func pollUntilRetries(t *testing.T, a *App, f *testfake.Telegram, n int) {
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { a.Poll(ctx); close(done) }()
-	waitFor(t, func() bool {
+	t.Helper()
+	pollUntil(t, a, func() bool {
 		var c int
 		f.Set(func(f *testfake.Telegram) { c = f.Calls["getUpdates"] })
 		return c >= n
 	})
-	cancel()
-	<-done
+}
+
+// pollUntil runs Poll until cond holds (generous deadline), then stops it.
+func pollUntil(t *testing.T, a *App, cond func() bool) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { a.Poll(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	waitFor(t, cond)
 }
 
 func TestConflictIsAnnouncedOncePerStreakAndRecorded(t *testing.T) {
@@ -165,10 +171,9 @@ func TestConflictIsAnnouncedOncePerStreakAndRecorded(t *testing.T) {
 			t.Fatalf("%d notices", n)
 		}
 		f.Set(func(f *testfake.Telegram) { f.Fail409 = false })
-		pollUntilRetries(t, a, f, 20)
-		if a.Eng.Conflict() != "" {
-			t.Fatal("conflict not cleared")
-		}
+		// the call count says nothing about a successful answer being processed
+		// (the count includes the in-flight call): wait for the record itself
+		pollUntil(t, a, func() bool { return a.Eng.Conflict() == "" })
 		srv.Close()
 	}
 }

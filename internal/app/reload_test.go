@@ -193,7 +193,7 @@ func TestReloadSignalReadsConfigAtOnce(t *testing.T) {
 
 func waitFor(t *testing.T, ok func() bool) {
 	t.Helper()
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 2000; i++ { // 20 s: only a failure waits this long
 		if ok() {
 			return
 		}

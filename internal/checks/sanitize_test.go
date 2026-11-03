@@ -27,18 +27,6 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
-func TestMsg(t *testing.T) {
-	if got := Msg("box", "watching 1 check."); got != "box: watching 1 check." {
-		t.Fatalf("%q", got)
-	}
-	if got := Msg("", "cannot start: x"); got != "Cannot start: x" {
-		t.Fatalf("%q", got)
-	}
-	if got := Msg("", ""); got != "" {
-		t.Fatalf("%q", got)
-	}
-}
-
 func TestFingerprints(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"123456789:fake-token-for-tests-only-x7Q2", "bot 123456789, …x7Q2"},

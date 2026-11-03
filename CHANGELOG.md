@@ -7,9 +7,16 @@
 - If a dead-man switch is set up, one message "dead-man switch is active, first
   ping OK at HH:MM" arrives once after the upgrade. It is the new confirmation
   that the first ping went through, not an alarm.
+- Messages still queued from before the upgrade (state file version 1) are
+  converted once to the new HTML format on the first start. A rollback to
+  v0.1.0 afterwards shows raw tags such as `<b>` in messages queued meanwhile.
 
 ### Telegram messages
 
+- Formatted with Telegram HTML: check and host names in bold, config paths and
+  `little-wd check` in a fixed font, bold /status header and group headings.
+  All names, hosts and error texts are escaped; if Telegram ever rejects the
+  formatting, the message is sent again as plain text, so no alarm is lost.
 - Rewritten in plain English: what happened, where, since when, what to do.
   Alarms keep "since HH:MM" and name the limit ("limit 90%"); the clock time no longer leads every message. A
   message that arrives more than 2 minutes after its event ends with

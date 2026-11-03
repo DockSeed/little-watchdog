@@ -18,6 +18,7 @@ import (
 	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/clock"
 	"github.com/DockSeed/little-watchdog/internal/config"
+	"github.com/DockSeed/little-watchdog/internal/telegram"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
 
@@ -74,7 +75,7 @@ func TestCycleSendsOnlyOnChange(t *testing.T) {
 	a.Cycle(ctx)
 	a.Cycle(ctx)
 	got := f.Texts()
-	if len(got) != 2 || !strings.HasPrefix(got[0], "❌ http:web on testhost is down since ") || !strings.HasSuffix(got[0], ": HTTP 502.") || !strings.HasPrefix(got[1], "✅ http:web on testhost is back after ") {
+	if len(got) != 2 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> on <b>testhost</b> is down since ") || !strings.HasSuffix(got[0], ": HTTP 502.") || !strings.HasPrefix(got[1], "✅ <b>http:web</b> on <b>testhost</b> is back after ") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -206,7 +207,7 @@ func TestRunStartMessage(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if got := f.Texts(); len(got) == 0 || got[0] != "testhost: watching 1 check (http:web). /status shows the details." {
+	if got := f.Texts(); len(got) == 0 || got[0] != "<b>testhost</b>: watching 1 check (<b>http:web</b>). /status shows the details." {
 		t.Fatalf("%q", got)
 	}
 }
@@ -229,19 +230,19 @@ func TestStartText(t *testing.T) {
 		return cs
 	}
 	got := StartText("box", mk("disk /", "memory", "temperature", "cpu"))
-	if want := "box: watching 4 checks (disk /, memory, temperature, cpu). /status shows the details."; got != want {
+	if want := "<b>box</b>: watching 4 checks (<b>disk /</b>, <b>memory</b>, <b>temperature</b>, <b>cpu</b>). /status shows the details."; got != want {
 		t.Fatalf("%q", got)
 	}
-	if got := StartText("", mk("disk")); got != "Watching 1 check (disk). /status shows the details." {
+	if got := StartText("", mk("disk")); got != "Watching 1 check (<b>disk</b>). /status shows the details." {
 		t.Fatalf("%q", got)
 	}
 	got = StartText("box", mk("a", "b", "c", "d", "e", "f", "g", "h"))
-	if want := "box: watching 8 checks (a, b, c, d, e and 3 more). /status shows the details."; got != want {
+	if want := "<b>box</b>: watching 8 checks (<b>a</b>, <b>b</b>, <b>c</b>, <b>d</b>, <b>e</b> and 3 more). /status shows the details."; got != want {
 		t.Fatalf("%q", got)
 	}
 	long := strings.Repeat("n", 60)
 	got = StartText("box", mk(long+"1", long+"2", long+"3", long+"4"))
-	if len([]rune(got)) > 200 || !strings.Contains(got, " more). /status") {
+	if len([]rune(telegram.Plain(got))) > 200 || !strings.Contains(got, " more). /status") {
 		t.Fatalf("%d: %q", len([]rune(got)), got)
 	}
 }
@@ -259,7 +260,7 @@ func TestMessagesWithoutHost(t *testing.T) {
 		a.Cycle(ctx)
 	}
 	got := f.Texts()
-	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ http:web is down since ") || !strings.HasSuffix(got[0], ": down.") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> is down since ") || !strings.HasSuffix(got[0], ": down.") {
 		t.Fatalf("%q", got)
 	}
 }

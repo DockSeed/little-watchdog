@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/DockSeed/little-watchdog/internal/clock"
 )
@@ -56,6 +57,7 @@ type Client struct {
 	Attempts    int           // sendMessage attempts, default 3
 	Backoff     time.Duration // base delay, multiplied by attempt number
 	Clk         clock.Clock
+	Log         func(format string, args ...any) // optional; formatting fallbacks are logged here
 
 	mu    sync.Mutex // serializes sendMessage pacing
 	last  time.Time  // start of the last sendMessage request
@@ -190,18 +192,6 @@ func Len16(s string) int {
 	return n
 }
 
-// Cut16 cuts s to at most n UTF-16 code units, at a character boundary.
-func Cut16(s string, n int) string {
-	used := 0
-	for i, r := range s {
-		used += utf16.RuneLen(r)
-		if used > n {
-			return s[:i]
-		}
-	}
-	return s
-}
-
 // Close drops idle connections (after the client was replaced by a reload).
 func (c *Client) Close() { c.hc.CloseIdleConnections() }
 
@@ -210,14 +200,17 @@ func (c *Client) SendOnce(ctx context.Context, chat int64, text string) error {
 	return c.send(ctx, chat, text, 1)
 }
 
-// SendMessage sends plain text (no parse mode) with retries.
+// SendMessage sends text as Telegram HTML (see Esc and the tags b and code) with retries.
+// An answer "can't parse entities" is never the end of a message: it is sent once more
+// as plain text, so an alarm is not lost over its formatting.
 func (c *Client) SendMessage(ctx context.Context, chat int64, text string) error {
 	return c.send(ctx, chat, text, c.Attempts)
 }
 
 func (c *Client) send(ctx context.Context, chat int64, text string, attempts int) error {
-	text = Cut16(text, MaxText)
+	text = CutHTML(text, MaxText)
 	var err error
+	plain := false
 	for i := 1; i <= attempts; i++ {
 		maxWait := time.Duration(1 << 62)
 		if attempts == 1 {
@@ -226,7 +219,21 @@ func (c *Client) send(ctx context.Context, chat int64, text string, attempts int
 		if err = c.pace(ctx, chat, maxWait); err != nil {
 			return err
 		}
-		err = c.call(ctx, "sendMessage", map[string]any{"chat_id": chat, "text": text}, 0, nil)
+		if plain { // an earlier attempt of this message got a parse error: stay plain
+			err = c.call(ctx, "sendMessage", map[string]any{"chat_id": chat, "text": Plain(text)}, 0, nil)
+		} else {
+			err = c.call(ctx, "sendMessage", map[string]any{"chat_id": chat, "text": text, "parse_mode": "HTML"}, 0, nil)
+			if isParseError(err) {
+				plain = true // sticky for the retries, one warning per message
+				if c.Log != nil {
+					c.Log("warning: Telegram could not parse the formatting (%v), sending the message as plain text", err)
+				}
+				if err = c.pace(ctx, chat, maxWait); err != nil {
+					return err
+				}
+				err = c.call(ctx, "sendMessage", map[string]any{"chat_id": chat, "text": Plain(text)}, 0, nil)
+			}
+		}
 		if err == nil {
 			return nil
 		}
@@ -319,4 +326,91 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, waitSec int) ([]U
 		"offset": offset, "timeout": waitSec, "limit": limit, "allowed_updates": []string{"message"},
 	}, time.Duration(waitSec)*time.Second, &us)
 	return us, err
+}
+
+var (
+	htmlUnesc = strings.NewReplacer("&lt;", "<", "&gt;", ">", "&amp;", "&", "&quot;", `"`)
+)
+
+// isParseError is Telegram's 400 for HTML it cannot read.
+func isParseError(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Code == 400 && strings.Contains(strings.ToLower(ae.Desc), "parse entities")
+}
+
+// Plain turns a message made with Esc and our tags back into plain text.
+func Plain(s string) string {
+	var sb strings.Builder
+	for len(s) > 0 {
+		i := strings.IndexByte(s, '<')
+		if i < 0 {
+			sb.WriteString(s)
+			break
+		}
+		sb.WriteString(s[:i])
+		j := strings.IndexByte(s[i:], '>')
+		if j < 0 { // a lone "<" is not ours: keep it
+			sb.WriteString(s[i:])
+			break
+		}
+		s = s[i+j+1:]
+	}
+	return htmlUnesc.Replace(sb.String())
+}
+
+// CutHTML cuts s to at most n UTF-16 code units, never inside a tag or an entity, and
+// closes the tags that were still open (their closing tags count toward n).
+func CutHTML(s string, n int) string {
+	if Len16(s) <= n {
+		return s
+	}
+	var open []string
+	closing := func() string {
+		var sb strings.Builder
+		for i := len(open) - 1; i >= 0; i-- {
+			sb.WriteString("</" + open[i] + ">")
+		}
+		return sb.String()
+	}
+	used, end := 0, 0
+	for i := 0; i < len(s); {
+		var tok, name string
+		closeTag := false
+		switch {
+		case s[i] == '<':
+			j := strings.IndexByte(s[i:], '>')
+			if j < 0 {
+				return s[:end] + closing()
+			}
+			tok = s[i : i+j+1]
+			name = strings.TrimPrefix(strings.Trim(tok, "<>"), "/")
+			closeTag = strings.HasPrefix(tok, "</")
+		case s[i] == '&':
+			if j := strings.IndexByte(s[i:], ';'); j > 0 && j <= 6 {
+				tok = s[i : i+j+1]
+			}
+		}
+		if tok == "" {
+			_, w := utf8.DecodeRuneInString(s[i:])
+			tok = s[i : i+w]
+		}
+		next := append([]string(nil), open...)
+		switch {
+		case name != "" && closeTag && len(next) > 0:
+			next = next[:len(next)-1]
+		case name != "" && !closeTag:
+			next = append(next, name)
+		}
+		add := Len16(tok)
+		save := open
+		open = next
+		if used+add+Len16(closing()) > n {
+			open = save
+			break
+		}
+		used += add
+		i += len(tok)
+		end = i
+	}
+	return s[:end] + closing()
 }

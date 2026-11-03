@@ -20,6 +20,7 @@ import (
 	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/config"
 	"github.com/DockSeed/little-watchdog/internal/state"
+	"github.com/DockSeed/little-watchdog/internal/telegram"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
 
@@ -127,7 +128,7 @@ func TestReloadInvalidKeepsOldAndNotifiesOnce(t *testing.T) {
 	r.a.Cycle(ctx)
 	r.a.Cycle(ctx)
 	texts := r.f.Texts()
-	if r.invalidMsgs() != 1 || !strings.Contains(strings.Join(texts, "\n"), "testhost: the config file has a problem, so the previous one stays in use: config line 14: TCP_X") {
+	if r.invalidMsgs() != 1 || !strings.Contains(strings.Join(texts, "\n"), "❌ <b>testhost</b>: the config file has a problem, so the previous one stays in use: config line 14: TCP_X") {
 		t.Fatalf("texts %q", texts)
 	}
 	if strings.Contains(strings.Join(texts, "\n"), "nonsense") || len(r.a.Checks) == 0 || r.a.Checks[0].Name() != "a" {
@@ -218,8 +219,8 @@ func TestWaitConfigWaitsForAFixAndTellsOnce(t *testing.T) {
 	if err != nil || len(cfg.Checks) != 1 {
 		t.Fatal(cfg, err)
 	}
-	want := "1:abc|❌ " + checks.Msg(checks.Host(), "little-watchdog cannot start: config line 3: TCP_X: invalid value (expected host:port).") +
-		"\nFix it in little-wd or in " + p + `. "little-wd check" tests the file. It starts by itself once the config is fixed.`
+	want := "1:abc|❌ " + telegram.Msg(checks.Host(), "little-watchdog cannot start: config line 3: TCP_X: invalid value (expected host:port).") +
+		"\nFix it in little-wd or in <code>" + p + "</code>. <code>little-wd check</code> tests the file. It starts by itself once the config is fixed."
 	if len(told) != 1 || told[0] != want {
 		t.Fatalf("%q\nwant %q", told, want)
 	}

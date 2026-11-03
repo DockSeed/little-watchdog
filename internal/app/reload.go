@@ -67,21 +67,21 @@ func (a *App) reload() {
 	a.sig, a.badReads = sig, 0
 	if a.bad {
 		a.bad = false
-		a.notify(checks.Msg(a.Host, "the config file is fine again and is in use."))
+		a.notify(telegram.Msg(a.Host, "the config file is fine again and is in use."))
 	}
 	a.apply(nc)
 }
 
 func (a *App) invalidText(err error) string {
-	return "❌ " + checks.Msg(a.Host, "the config file has a problem, so the previous one stays in use: "+sentence(err)) + "\n" + FixHint(a.Path, false)
+	return "❌ " + telegram.Msg(a.Host, "the config file has a problem, so the previous one stays in use: "+telegram.Esc(sentence(err))) + "\n" + FixHint(a.Path, false)
 }
 
 // sentence is err as text that ends in one full stop.
 func sentence(err error) string { return strings.TrimRight(err.Error(), ".") + "." }
 
-// FixHint tells where a config problem is fixed; start says the daemon waits for it.
+// FixHint (Telegram HTML) tells where a config problem is fixed; start says the daemon waits for it.
 func FixHint(path string, start bool) string {
-	t := "Fix it in little-wd or in " + checks.Sanitize(path) + `. "little-wd check" tests the file.`
+	t := "Fix it in little-wd or in " + telegram.Code(checks.Sanitize(path)) + ". " + telegram.Code("little-wd check") + " tests the file."
 	if start {
 		t += " It starts by itself once the config is fixed."
 	}
@@ -108,7 +108,7 @@ func (a *App) apply(nc *config.Config) {
 	if nc.APIURL != old.APIURL || nc.Token != old.Token {
 		defer tg.Close()
 		tg = telegram.New(nc.APIURL, nc.Token, sendTimeout)
-		tg.Clk = a.Clk
+		tg.Clk, tg.Log = a.Clk, a.Log.Printf
 	}
 	if nc.DeadmanURL == "" {
 		a.Eng.ClearDeadman()
@@ -213,7 +213,7 @@ func WaitConfig(ctx context.Context, path, stateFile string, l *log.Logger, poll
 		if !told {
 			told = true
 			if tok, chat, api := config.TelegramOnly(path); tok != "" && chat != 0 && tell != nil {
-				tell(tok, chat, api, "❌ "+checks.Msg(checks.Host(), "little-watchdog cannot start: "+sentence(err))+"\n"+FixHint(path, true))
+				tell(tok, chat, api, "❌ "+telegram.Msg(checks.Host(), "little-watchdog cannot start: "+telegram.Esc(sentence(err)))+"\n"+FixHint(path, true))
 			}
 		}
 		select {

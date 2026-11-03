@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
@@ -234,13 +233,6 @@ func TestUpdatesAnd409(t *testing.T) {
 func TestMessageLengthIsCountedInUTF16Units(t *testing.T) {
 	if Len16("abc") != 3 || Len16("❌") != 1 || Len16("𝔘") != 2 {
 		t.Fatal(Len16("abc"), Len16("❌"), Len16("𝔘"))
-	}
-	long := strings.Repeat("𝔘", MaxText) // 2 units each
-	if got := Cut16(long, MaxText); Len16(got) != MaxText || !utf8.ValidString(got) {
-		t.Fatal(Len16(got))
-	}
-	if Cut16("short", 10) != "short" {
-		t.Fatal()
 	}
 }
 

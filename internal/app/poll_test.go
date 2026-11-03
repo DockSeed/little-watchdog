@@ -100,9 +100,14 @@ func TestLongStatusIsSentInParts(t *testing.T) {
 	a.Cycle(ctx)
 	done := make(chan struct{})
 	go func() { a.Poll(ctx); close(done) }()
-	time.Sleep(300 * time.Millisecond)
+	// updates older than the first lookup are skipped: send /status once the poll loop runs
+	waitFor(t, func() bool {
+		n := 0
+		f.Set(func(f *testfake.Telegram) { n = f.Calls["getUpdates"] })
+		return n >= 2
+	})
 	f.AddMessage(42, "/status")
-	time.Sleep(800 * time.Millisecond)
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.Texts(), "\n"), "-299") })
 	cancel()
 	<-done
 	got := f.Texts()
@@ -110,6 +115,10 @@ func TestLongStatusIsSentInParts(t *testing.T) {
 		t.Fatalf("%d parts", len(got))
 	}
 	all := strings.Join(got, "\n")
+	validAll(t, f, got)
+	if !strings.HasPrefix(got[0], "<b>testhost: 301 checks, none failing.</b>\n<b>Services</b>\n✅ <b>http:web</b>: ok\n✅ <b>web-service") {
+		t.Errorf("first part %.120q", got[0])
+	}
 	for i, p := range got {
 		if telegram.Len16(p) > telegram.MaxText {
 			t.Errorf("part %d is %d units", i, telegram.Len16(p))

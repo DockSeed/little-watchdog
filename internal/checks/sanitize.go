@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // MaxText is the longest detail or value that is stored, sent or shown.
@@ -40,26 +39,6 @@ func Host() string {
 		return ""
 	}
 	return strings.TrimSpace(Sanitize(h))
-}
-
-// Msg prefixes text with "HOST: "; without a host the text stands alone, capitalised.
-func Msg(host, text string) string {
-	if host != "" {
-		return host + ": " + text
-	}
-	r := []rune(text)
-	if len(r) > 0 {
-		r[0] = unicode.ToUpper(r[0])
-	}
-	return string(r)
-}
-
-// On is " on HOST", or "" without a host.
-func On(host string) string {
-	if host == "" {
-		return ""
-	}
-	return " on " + host
 }
 
 // Dur renders a duration for people: "45 s", "3 min", "1 h 30 min".

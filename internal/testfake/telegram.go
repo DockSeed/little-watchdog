@@ -7,6 +7,7 @@ package testfake
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,13 +26,21 @@ type Telegram struct {
 	FailCode int      // sendMessage answers this status (overrides Fail)
 	// RejectContains makes sendMessage answer 400 for texts containing it.
 	RejectContains string
-	SendDelay      time.Duration // sendMessage waits this long before answering
-	Webhook        string
-	Calls          map[string]int
-	updates        []map[string]any
-	nextID         int64
-	SendCount      int
-	PollTimeouts   []int // timeout parameter of each getUpdates
+	// RejectHTML makes sendMessage answer 400 "can't parse entities" for every message
+	// sent with parse_mode HTML (a formatting Telegram does not accept).
+	RejectHTML bool
+	// Modes holds the parse_mode of each accepted or parse-rejected sendMessage ("" = none).
+	Modes []string
+	// BadHTML lists texts sent with parse_mode HTML that are not valid Telegram HTML.
+	// Like the real API, the fake answers them with 400 "can't parse entities".
+	BadHTML      []string
+	SendDelay    time.Duration // sendMessage waits this long before answering
+	Webhook      string
+	Calls        map[string]int
+	updates      []map[string]any
+	nextID       int64
+	SendCount    int
+	PollTimeouts []int // timeout parameter of each getUpdates
 	// PollHold is how long an empty getUpdates is held open (default 200ms;
 	// the real API holds up to the requested timeout).
 	PollHold time.Duration
@@ -68,6 +77,19 @@ func (f *Telegram) Handler() http.Handler {
 				f.mu.Lock()
 			}
 			text, _ := p["text"].(string)
+			mode, _ := p["parse_mode"].(string)
+			if mode == "HTML" {
+				f.Modes = append(f.Modes, mode)
+				if err := CheckHTML(text); f.RejectHTML || err != nil {
+					if err != nil {
+						f.BadHTML = append(f.BadHTML, text)
+					}
+					reply(w, 400, map[string]any{"ok": false, "error_code": 400, "description": "Bad Request: can't parse entities: unsupported start tag"})
+					return
+				}
+			} else {
+				f.Modes = append(f.Modes, mode)
+			}
 			if f.FailCode != 0 || (f.RejectContains != "" && strings.Contains(text, f.RejectContains)) {
 				code, desc := f.FailCode, "rejected"
 				if code == 0 { // a message the bot cannot send as written
@@ -170,4 +192,53 @@ func (f *Telegram) Set(fn func(*Telegram)) {
 func Start(token string) (*Telegram, *httptest.Server) {
 	f := &Telegram{Token: token}
 	return f, httptest.NewServer(f.Handler())
+}
+
+// CheckHTML reports why s is not valid Telegram HTML as this program uses it: only the
+// tags b and code, properly nested and closed, and no bare < > or & outside tags and the
+// entities &amp; &lt; &gt; &quot;. It is deliberately stricter than Telegram (which accepts a
+// bare & or >), so a test fails on text that merely happens to be tolerated.
+func CheckHTML(s string) error {
+	var open []string
+	for i := 0; i < len(s); {
+		switch s[i] {
+		case '<':
+			j := strings.IndexByte(s[i:], '>')
+			if j < 0 {
+				return fmt.Errorf("unterminated tag at %d", i)
+			}
+			tag := s[i+1 : i+j]
+			i += j + 1
+			if name, ok := strings.CutPrefix(tag, "/"); ok {
+				if len(open) == 0 || open[len(open)-1] != name {
+					return fmt.Errorf("unbalanced </%s>", name)
+				}
+				open = open[:len(open)-1]
+			} else if tag == "b" || tag == "code" {
+				open = append(open, tag)
+			} else {
+				return fmt.Errorf("unsupported tag <%s>", tag)
+			}
+		case '>':
+			return fmt.Errorf("bare > at %d", i)
+		case '&':
+			ok := false
+			for _, e := range []string{"&amp;", "&lt;", "&gt;", "&quot;"} {
+				if strings.HasPrefix(s[i:], e) {
+					i += len(e)
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("bare & at %d", i)
+			}
+		default:
+			i++
+		}
+	}
+	if len(open) > 0 {
+		return fmt.Errorf("unclosed <%s>", open[len(open)-1])
+	}
+	return nil
 }

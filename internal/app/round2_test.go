@@ -91,7 +91,7 @@ func TestStartMessageIsRetriedUntilItGoesOut(t *testing.T) {
 	waitFor(t, func() bool { return len(f.Texts()) > 0 })
 	cancel()
 	<-done
-	if got := f.Texts(); !strings.Contains(got[0], "watching 1 check (http:web)") {
+	if got := f.Texts(); !strings.Contains(got[0], "watching 1 check (<b>http:web</b>)") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -158,7 +158,7 @@ func TestConflictIsAnnouncedOncePerStreakAndRecorded(t *testing.T) {
 		pollUntilRetries(t, a, f, 5)
 		a.Deliver(context.Background())
 		got := f.Texts()
-		if len(got) != 1 || !strings.Contains(got[0], tc.text) || !strings.HasPrefix(got[0], "testhost: ") {
+		if len(got) != 1 || !strings.Contains(got[0], tc.text) || !strings.HasPrefix(got[0], "<b>testhost</b>: ") {
 			t.Fatalf("%s: one notice per streak expected: %q", tc.kind, got)
 		}
 		if a.Eng.Conflict() != tc.kind {
@@ -206,8 +206,8 @@ func TestInvalidConfigNoticeHasTheFixHint(t *testing.T) {
 	r.a.Cycle(ctx)
 	r.a.Cycle(ctx)
 	got := strings.Join(r.f.Texts(), "\n")
-	want := "❌ testhost: the config file has a problem, so the previous one stays in use: config line"
-	hint := "\nFix it in little-wd or in " + r.path + `. "little-wd check" tests the file.`
+	want := "❌ <b>testhost</b>: the config file has a problem, so the previous one stays in use: config line"
+	hint := "\nFix it in little-wd or in <code>" + r.path + "</code>. <code>little-wd check</code> tests the file."
 	if !strings.Contains(got, want) || !strings.Contains(got, hint) || strings.Contains(got, "starts by itself") {
 		t.Fatalf("%q", got)
 	}

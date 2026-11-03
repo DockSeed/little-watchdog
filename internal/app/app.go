@@ -103,6 +103,7 @@ func New(cfg *config.Config, out io.Writer) *App {
 	a.Eng = state.NewEngine(cfg.FailAfter, cfg.RecoverAfter)
 	a.Eng.Host = a.Host
 	a.TG = telegram.New(cfg.APIURL, cfg.Token, sendTimeout)
+	a.TG.Log = l.Printf
 	a.DM = a.newDM(cfg)
 	return a
 }
@@ -110,13 +111,13 @@ func New(cfg *config.Config, out io.Writer) *App {
 func (a *App) newDM(cfg *config.Config) *deadman.Switch {
 	dm := deadman.New(cfg.DeadmanURL, cfg.DeadmanEvery, a.Log.Printf)
 	dm.OnBad = func(err error) {
-		a.notify(checks.Msg(a.Host, "the dead-man ping was rejected: "+err.Error()+". Check the UUID in DEADMAN_URL."))
+		a.notify(telegram.Msg(a.Host, "the dead-man ping was rejected: "+telegram.Esc(err.Error())+". Check the UUID in DEADMAN_URL."))
 	}
 	url := cfg.DeadmanURL
 	dm.OnPing = func(err error) {
 		now := a.Now()
 		if a.Eng.NoteDeadman(checks.URLFP(url), err, now) {
-			a.notify(checks.Msg(a.Host, fmt.Sprintf("dead-man switch is active, first ping OK at %s. If the pings stop, Healthchecks alarms you.", now.Format("15:04"))))
+			a.notify(telegram.Msg(a.Host, fmt.Sprintf("dead-man switch is active, first ping OK at %s. If the pings stop, Healthchecks alarms you.", now.Format("15:04"))))
 		}
 	}
 	return dm
@@ -218,14 +219,14 @@ func (a *App) migrate(to int64) bool {
 	a.moved.from, a.moved.to = a.Cfg.ChatID, to
 	a.mu.Unlock()
 	a.Log.Printf("warning: Telegram moved the chat to %d; using it until restart, update TELEGRAM_CHAT_ID", to)
-	a.notify(checks.Msg(a.Host, fmt.Sprintf("Telegram moved this chat to id %d. The new id is used until restart. Update TELEGRAM_CHAT_ID (little-wd, Telegram).", to)))
+	a.notify(telegram.Msg(a.Host, fmt.Sprintf("Telegram moved this chat to id %d. The new id is used until restart. Update TELEGRAM_CHAT_ID (little-wd, Telegram).", to)))
 	return true
 }
 
 // probe is the dead-man's reachability test: a real sendMessage to the chat, one attempt.
 func (a *App) probe(ctx context.Context) error {
 	_, _, _, dm := a.cur()
-	err := a.sendN(ctx, checks.Msg(a.Host, fmt.Sprintf("Telegram is reachable again after %d failed sends.", dm.Fails())), true)
+	err := a.sendN(ctx, telegram.Msg(a.Host, fmt.Sprintf("Telegram is reachable again after %d failed sends.", dm.Fails())), true)
 	if errors.Is(err, telegram.ErrHeld) {
 		return nil // flood wait: Telegram answers, it only asks us to slow down
 	}
@@ -383,17 +384,18 @@ func splitLines(text string) []string {
 // flush delivers pending messages bundled; a transient failure stops it until the next round.
 func (a *App) flush(ctx context.Context) {
 	q := a.Eng.Queue()
+	txt := a.texts(q) // rendered once: the sizes measured are the texts sent (the late suffix cannot change in between)
 	for len(q) > 0 {
-		n := chunk(a.texts(q))
-		if !a.sendChunk(ctx, q[:n]) {
+		n := chunk(txt)
+		if !a.sendChunk(ctx, q[:n], txt[:n]) {
 			return
 		}
-		q = q[n:]
+		q, txt = q[n:], txt[n:]
 	}
 }
 
-func (a *App) sendChunk(ctx context.Context, q []state.Queued) bool {
-	txt := a.texts(q)
+// sendChunk sends q as one message; txt are the rendered texts of q.
+func (a *App) sendChunk(ctx context.Context, q []state.Queued, txt []string) bool {
 	err := a.send(ctx, strings.Join(txt, "\n"))
 	if err == nil {
 		for _, m := range q {
@@ -481,7 +483,7 @@ func (a *App) deadmanLoop(ctx context.Context) {
 func StartText(host string, cs []checks.Check) string {
 	names := make([]string, len(cs))
 	for i, c := range cs {
-		names[i] = checks.Sanitize(c.Name())
+		names[i] = telegram.B(checks.Sanitize(c.Name()))
 	}
 	n := len(names)
 	if n > 6 {
@@ -496,8 +498,8 @@ func StartText(host string, cs []checks.Check) string {
 		if len(names) > 0 {
 			t += " (" + list + ")"
 		}
-		t = checks.Msg(host, t+". /status shows the details.")
-		if n <= 1 || len([]rune(t)) <= 200 {
+		t = telegram.Msg(host, t+". /status shows the details.")
+		if n <= 1 || len([]rune(telegram.Plain(t))) <= 200 {
 			return t
 		}
 		n--
@@ -534,9 +536,9 @@ func conflictKind(desc string) string {
 // conflictText is the one notice per 409 streak.
 func conflictText(host, kind string) string {
 	if kind == state.ConflictWebhook {
-		return checks.Msg(host, "a webhook is set for this bot, so /status does not work here. Remove the webhook (setup in little-wd, Telegram, offers it) or use one bot per machine.")
+		return telegram.Msg(host, "a webhook is set for this bot, so /status does not work here. Remove the webhook (setup in little-wd, Telegram, offers it) or use one bot per machine.")
 	}
-	return checks.Msg(host, "this bot is also used elsewhere, so /status does not work here. Use one bot per machine.")
+	return telegram.Msg(host, "this bot is also used elsewhere, so /status does not work here. Use one bot per machine.")
 }
 
 // Poll long-polls getUpdates and answers /status from the configured chat.

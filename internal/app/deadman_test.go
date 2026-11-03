@@ -135,7 +135,7 @@ func TestDeadmanFirstPingMessage(t *testing.T) {
 	ctx := context.Background()
 	active := func() (n int) {
 		for _, s := range f.Texts() {
-			if strings.HasPrefix(s, "testhost: dead-man switch is active, first ping OK at ") && strings.HasSuffix(s, ". If the pings stop, Healthchecks alarms you.") {
+			if strings.HasPrefix(s, "<b>testhost</b>: dead-man switch is active, first ping OK at ") && strings.HasSuffix(s, ". If the pings stop, Healthchecks alarms you.") {
 				n++
 			}
 		}

@@ -165,7 +165,7 @@ func Pair(ctx context.Context, o Options) (token string, chat int64, err error) 
 
 // TestText is the message that confirms the link.
 func TestText(host string) string {
-	return "little-watchdog" + checks.On(host) + ": this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
+	return "little-watchdog" + telegram.On(host) + ": this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
 }
 
 func explain409(err error) error {

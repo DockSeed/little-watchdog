@@ -249,11 +249,18 @@ func TestPairFailurePaths(t *testing.T) {
 }
 
 func TestTestTextHostAndFallback(t *testing.T) {
-	want := "little-watchdog on box: this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
+	want := "little-watchdog on <b>box</b>: this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
 	if got := TestText("box"); got != want {
 		t.Fatalf("%q", got)
 	}
 	if got := TestText(""); !strings.HasPrefix(got, "little-watchdog: this chat is linked.") {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestTestTextEscapesTheHost(t *testing.T) {
+	got := TestText("<b>&host</b>")
+	if err := testfake.CheckHTML(got); err != nil || !strings.Contains(got, "&lt;b&gt;&amp;host&lt;/b&gt;") {
+		t.Fatalf("%v: %q", err, got)
 	}
 }

@@ -17,9 +17,14 @@ import (
 	"time"
 
 	"github.com/DockSeed/little-watchdog/internal/checks"
+	"github.com/DockSeed/little-watchdog/internal/telegram"
 )
 
 const maxPending = 20
+
+// fileVersion is the state file format. 2: Pending and LastMsg hold Telegram HTML;
+// 1 (and files without a version) held plain text, which Load converts once.
+const fileVersion = 2
 
 type Entry struct {
 	Name      string        `json:"name"`
@@ -127,6 +132,12 @@ func (e *Engine) Load(path string, valid map[string]bool) (warn string) {
 	}
 	for id, en := range f.Checks {
 		if en != nil && valid[id] {
+			if f.Version < fileVersion {
+				en.LastMsg = telegram.Esc(en.LastMsg)
+				for i, m := range en.Pending {
+					en.Pending[i] = telegram.Esc(m)
+				}
+			}
 			e.entries[id] = en
 		}
 	}
@@ -176,7 +187,7 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	defer e.saveMu.Unlock()
 	e.mu.Lock()
 	tg, dm := e.tg, e.dm
-	f := file{Version: 1, Checks: e.entries, Telegram: &tg}
+	f := file{Version: fileVersion, Checks: e.entries, Telegram: &tg}
 	if dm.URLFP != "" {
 		f.Deadman = &dm
 	}
@@ -271,6 +282,7 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	before := sigOf()
 	npend := len(en.Pending)
 	name, detail := checks.Sanitize(c.Name()), checks.Sanitize(r.Detail)
+	bname, bdetail := telegram.B(name), telegram.Esc(detail) // messages are Telegram HTML
 	en.Name, en.Type, en.Value, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), now
 	defer func() {
 		switch {
@@ -299,11 +311,11 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 			since := When(en.DownSince, now)
 			switch {
 			case r.NoAnswer:
-				msg = fmt.Sprintf("❌ %s%s is not answering since %s.", name, checks.On(e.Host), since)
+				msg = fmt.Sprintf("❌ %s%s is not answering since %s.", bname, telegram.On(e.Host), since)
 			case isService(c.Type()):
-				msg = fmt.Sprintf("❌ %s%s is down since %s: %s.", name, checks.On(e.Host), since, detail)
+				msg = fmt.Sprintf("❌ %s%s is down since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
 			default:
-				msg = fmt.Sprintf("❌ %s%s has a problem since %s: %s.", name, checks.On(e.Host), since, detail)
+				msg = fmt.Sprintf("❌ %s%s has a problem since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
 			}
 		}
 	case checks.OK:
@@ -321,7 +333,7 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 		case checks.FAIL:
 			en.OKs++
 			if en.OKs >= e.RecoverAfter {
-				msg = fmt.Sprintf("✅ %s%s is back after %s.", name, checks.On(e.Host), dur(now.Sub(en.DownSince)))
+				msg = fmt.Sprintf("✅ %s%s is back after %s.", bname, telegram.On(e.Host), dur(now.Sub(en.DownSince)))
 				en.Reported, en.Since, en.OKs = checks.OK, now, 0
 				en.DownSince = time.Time{}
 			}
@@ -641,11 +653,11 @@ func Rank(list []string, t string) int {
 	return len(list)
 }
 
-// Brief renders entries for the Telegram /status reply: a summary line, then the
+// Brief renders entries for the Telegram /status reply (Telegram HTML): a bold summary line, then the
 // machine's own checks and the services under a heading each.
 func Brief(host string, es []Entry, now time.Time) string {
 	if len(es) == 0 {
-		return checks.Msg(host, "no checks are set up.")
+		return telegram.Head(host, "no checks are set up.")
 	}
 	var sb strings.Builder
 	failing := 0
@@ -656,9 +668,9 @@ func Brief(host string, es []Entry, now time.Time) string {
 	}
 	switch {
 	case failing == 0:
-		sb.WriteString(checks.Msg(host, checks.Count(len(es))+", none failing.") + "\n")
+		sb.WriteString(telegram.Head(host, checks.Count(len(es))+", none failing.") + "\n")
 	default:
-		sb.WriteString(checks.Msg(host, fmt.Sprintf("%d of %s failing.", failing, checks.Count(len(es)))) + "\n")
+		sb.WriteString(telegram.Head(host, fmt.Sprintf("%d of %s failing.", failing, checks.Count(len(es)))) + "\n")
 	}
 	var mach, svc []Entry
 	for _, en := range es {
@@ -677,7 +689,7 @@ func Brief(host string, es []Entry, now time.Time) string {
 		if len(g.es) == 0 {
 			continue
 		}
-		sb.WriteString(g.head + "\n")
+		sb.WriteString("<b>" + g.head + "</b>\n")
 		for _, en := range g.es {
 			sb.WriteString(briefLine(en, now) + "\n")
 		}
@@ -685,9 +697,9 @@ func Brief(host string, es []Entry, now time.Time) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// briefLine is "MARK name: value" with the state added only where it is not plain ok.
+// briefLine is "MARK name: value" (Telegram HTML) with the state added only where it is not plain ok.
 func briefLine(en Entry, now time.Time) string {
-	name, val := checks.Sanitize(en.Name), checks.Sanitize(en.Value)
+	name, val := telegram.B(checks.Sanitize(en.Name)), telegram.Esc(checks.Sanitize(en.Value))
 	with := func(state string) string { // value first; its own brackets stay single
 		if val == "" {
 			return state

@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -47,6 +48,7 @@ func newApp(t *testing.T, apiURL, dmURL string, buf *bytes.Buffer) (*App, *scrip
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
 	cfg.Timeout = time.Second
 	a := New(cfg, buf)
+	a.Host, a.Eng.Host = "testhost", "testhost"
 	a.TG.Backoff = time.Millisecond
 	fk = clock.NewFake()
 	a.SetClock(fk.Clock())
@@ -72,7 +74,7 @@ func TestCycleSendsOnlyOnChange(t *testing.T) {
 	a.Cycle(ctx)
 	a.Cycle(ctx)
 	got := f.Texts()
-	if len(got) != 2 || !strings.HasSuffix(got[0], " ❌ http:web: HTTP 502") || !strings.Contains(got[1], " ✅ ") {
+	if len(got) != 2 || !strings.HasPrefix(got[0], "❌ http:web on testhost is down since ") || !strings.HasSuffix(got[0], ": HTTP 502.") || !strings.HasPrefix(got[1], "✅ http:web on testhost is back after ") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -110,6 +112,7 @@ func TestDeadmanFailAndRecovery(t *testing.T) {
 	ctx := context.Background()
 	fk.Advance(2 * time.Minute)
 	a.Cycle(ctx)
+	a.Deliver(ctx) // the first-ping notice goes out while Telegram works
 	f.Set(func(f *testfake.Telegram) { f.Fail = true })
 	s.set(checks.Result{Status: checks.FAIL, Detail: "x"})
 	fk.Advance(2 * time.Minute)
@@ -203,7 +206,7 @@ func TestRunStartMessage(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if got := f.Texts(); len(got) == 0 || got[0] != "little-watchdog started, 1 checks" {
+	if got := f.Texts(); len(got) == 0 || got[0] != "testhost: watching 1 check (http:web). /status shows the details." {
 		t.Fatalf("%q", got)
 	}
 }
@@ -215,4 +218,68 @@ func addCheck(a *App, id string) *scripted {
 	s.set(checks.Result{Status: checks.OK})
 	a.Checks = append(a.Checks, s)
 	return s
+}
+
+func TestStartText(t *testing.T) {
+	mk := func(names ...string) []checks.Check {
+		var cs []checks.Check
+		for _, n := range names {
+			cs = append(cs, &scripted{id: n})
+		}
+		return cs
+	}
+	got := StartText("box", mk("disk /", "memory", "temperature", "cpu"))
+	if want := "box: watching 4 checks (disk /, memory, temperature, cpu). /status shows the details."; got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := StartText("", mk("disk")); got != "Watching 1 check (disk). /status shows the details." {
+		t.Fatalf("%q", got)
+	}
+	got = StartText("box", mk("a", "b", "c", "d", "e", "f", "g", "h"))
+	if want := "box: watching 8 checks (a, b, c, d, e and 3 more). /status shows the details."; got != want {
+		t.Fatalf("%q", got)
+	}
+	long := strings.Repeat("n", 60)
+	got = StartText("box", mk(long+"1", long+"2", long+"3", long+"4"))
+	if len([]rune(got)) > 200 || !strings.Contains(got, " more). /status") {
+		t.Fatalf("%d: %q", len([]rune(got)), got)
+	}
+}
+
+func TestMessagesWithoutHost(t *testing.T) {
+	f, srv := testfake.Start(tok)
+	defer srv.Close()
+	var buf bytes.Buffer
+	a, s := newApp(t, srv.URL, "", &buf)
+	a.Host, a.Eng.Host = "", ""
+	ctx := context.Background()
+	a.Cycle(ctx)
+	s.fail("down")
+	for i := 0; i < 3; i++ {
+		a.Cycle(ctx)
+	}
+	got := f.Texts()
+	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ http:web is down since ") || !strings.HasSuffix(got[0], ": down.") {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestRunSavesStateOnShutdown(t *testing.T) {
+	f, srv := testfake.Start(tok)
+	defer srv.Close()
+	var buf bytes.Buffer
+	a, _ := newApp(t, srv.URL, "", &buf)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- a.Run(ctx) }()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline) && len(f.Texts()) == 0; {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cfg, _, _, _ := a.cur()
+	os.Remove(cfg.StateFile)
+	cancel()
+	<-done
+	if _, err := os.Stat(cfg.StateFile); err != nil {
+		t.Fatalf("no state saved on shutdown: %v", err)
+	}
 }

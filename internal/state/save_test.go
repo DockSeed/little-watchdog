@@ -27,21 +27,21 @@ func TestSaveOnlyWhenChanged(t *testing.T) {
 	if e.Writes() != 1 {
 		t.Fatalf("unchanged state written %d times", e.Writes())
 	}
-	e.Observe(c, bad, t0.Add(6*time.Minute)) // a counter alone is no reason to write
+	e.Observe(c, bad, t0.Add(6*time.Minute)) // a failure streak starts: the TUI shows 1/2
 	e.SaveIfDue(path, t0.Add(6*time.Minute))
-	if e.Writes() != 1 {
-		t.Fatalf("counter change wrote: %d", e.Writes())
+	if e.Writes() != 2 {
+		t.Fatalf("streak start not written: %d", e.Writes())
 	}
 	e.Observe(c, bad, t0.Add(7*time.Minute)) // reported FAIL
 	e.SaveIfDue(path, t0.Add(7*time.Minute))
-	if e.Writes() != 2 {
+	if e.Writes() != 3 {
 		t.Fatal(e.Writes())
 	}
 	for i := 7; i <= 40; i++ { // steady failure: no further counter change
 		e.Observe(c, bad, t0.Add(time.Duration(i)*time.Minute))
 		e.SaveIfDue(path, t0.Add(time.Duration(i)*time.Minute))
 	}
-	if e.Writes() > 2+1+3 { // alarm + refresh every 10 min
+	if e.Writes() > 3+1+3 { // alarm + refresh every 10 min
 		t.Fatalf("writes %d", e.Writes())
 	}
 	b, _ := os.ReadFile(path)
@@ -90,7 +90,7 @@ func TestHeartbeatAndStale(t *testing.T) {
 	}
 }
 
-func TestFlappingCheckWritesOnlyOnReportedChange(t *testing.T) {
+func TestFlappingCheckWritesOnlyOnStreakEventsAndSendsNothing(t *testing.T) {
 	e := NewEngine(3, 2)
 	c := fake{"a", "http"}
 	p := filepath.Join(t.TempDir(), "s.json")
@@ -106,7 +106,8 @@ func TestFlappingCheckWritesOnlyOnReportedChange(t *testing.T) {
 		e.Observe(c, r, at)
 		e.SaveIfDue(p, at)
 	}
-	if e.Writes() != 1 {
+	// one write per flip (a streak starts or ends), none of them an alarm
+	if e.Writes() > 31 || len(e.PendingMessages()) != 0 {
 		t.Fatalf("%d writes for a flapping check", e.Writes())
 	}
 }

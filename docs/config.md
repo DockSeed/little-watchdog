@@ -27,5 +27,7 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 | `STATE_FILE` | `/var/lib/little-watchdog/state.json` | State file. |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | For tests. |
 
-`0` (or empty `DISK_PATHS`) switches an own-host check off. `<NAME>` is letters,
+`0` (or empty `DISK_PATHS`) switches an own-host check off. The limits of the own-host checks can also be changed (and the checks turned on or off) in `little-wd` under System checks. `<NAME>` is letters,
 digits and `_`. Example: `contrib/little-watchdog.env.example`.
+
+Disk writes (SD cards wear out): the daemon writes the state file about every 10 minutes when nothing happens (144 a day), a flapping check writes the state every 5 minutes instead of the 10-minute refresh (288 a day in the worst case in total, 144 when steady), and every alarm or all-clear message adds two writes; `little-wd` shows the measured rate.

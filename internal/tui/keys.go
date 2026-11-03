@@ -23,6 +23,10 @@ const (
 	Tab
 	BackTab
 	CtrlC
+	Home
+	End
+	Del
+	CtrlR // show or hide a secret while typing
 )
 
 type Key struct {
@@ -52,6 +56,19 @@ func Decode(b []byte) []Key {
 				ks = append(ks, Key{Code: Left})
 			case 'Z':
 				ks = append(ks, Key{Code: BackTab})
+			case 'H':
+				ks = append(ks, Key{Code: Home})
+			case 'F':
+				ks = append(ks, Key{Code: End})
+			case '~':
+				switch string(b[2:i]) {
+				case "1", "7":
+					ks = append(ks, Key{Code: Home})
+				case "4", "8":
+					ks = append(ks, Key{Code: End})
+				case "3":
+					ks = append(ks, Key{Code: Del})
+				}
 			}
 			b = b[i+1:]
 			continue
@@ -63,6 +80,8 @@ func Decode(b []byte) []Key {
 			ks = append(ks, Key{Code: Backspace})
 		case c == '\t':
 			ks = append(ks, Key{Code: Tab})
+		case c == 0x12:
+			ks = append(ks, Key{Code: CtrlR})
 		case c == 3 || c == 4:
 			ks = append(ks, Key{Code: CtrlC})
 		case c >= 0x20:

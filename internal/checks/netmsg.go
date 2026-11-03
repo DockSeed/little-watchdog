@@ -1,0 +1,73 @@
+// SPDX-FileCopyrightText: the little-watchdog contributors
+// SPDX-License-Identifier: MIT
+
+package checks
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"net"
+	"net/url"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// portOf is the port of a URL or host:port address ("" if there is none).
+func portOf(target string) string {
+	if u, err := url.Parse(target); err == nil && u.Host != "" {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		switch u.Scheme {
+		case "http":
+			return "80"
+		case "https":
+			return "443"
+		}
+		return ""
+	}
+	if _, p, err := net.SplitHostPort(target); err == nil {
+		return p
+	}
+	return ""
+}
+
+// Plain turns a network error into a sentence with the facts. timeout is the wait the
+// check was given and target its URL or host:port. URLs never appear in the text.
+func Plain(err error, timeout time.Duration, target string) string {
+	var dns *net.DNSError
+	var ua x509.UnknownAuthorityError
+	var hn x509.HostnameError
+	var ci x509.CertificateInvalidError
+	var cv *tls.CertificateVerificationError
+	switch {
+	case errors.As(err, &dns) && !dns.IsTimeout:
+		return "name " + Clean(dns.Name) + " not found"
+	case isTimeout(err):
+		if timeout < time.Second {
+			return "no answer within " + timeout.String()
+		}
+		return "no answer within " + Dur(timeout)
+	case errors.Is(err, syscall.ECONNREFUSED):
+		if p := portOf(target); p != "" {
+			return "connection refused, nothing listens on port " + p
+		}
+		return "connection refused"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.EHOSTDOWN):
+		return "host not reachable"
+	case errors.As(err, &cv), errors.As(err, &ua), errors.As(err, &hn), errors.As(err, &ci):
+		msg := err.Error()
+		if cv != nil && cv.Err != nil {
+			msg = cv.Err.Error()
+		}
+		return Sanitize("TLS certificate problem: " + strings.TrimPrefix(msg, "tls: failed to verify certificate: "))
+	}
+	return Sanitize(short(err))
+}
+
+func isTimeout(err error) bool {
+	var to interface{ Timeout() bool }
+	return errors.As(err, &to) && to.Timeout()
+}

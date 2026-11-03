@@ -31,12 +31,13 @@ const (
 var retryWaits = []time.Duration{5 * time.Second, 10 * time.Second}
 
 type Switch struct {
-	URL   string
-	Every time.Duration // time between two pings, never below MinEvery
-	Clk   clock.Clock
-	hc    *http.Client
-	logf  func(string, ...any)
-	OnBad func(error) // optional: called once when the URL is rejected (wrong UUID)
+	URL    string
+	Every  time.Duration // time between two pings, never below MinEvery
+	Clk    clock.Clock
+	hc     *http.Client
+	logf   func(string, ...any)
+	OnBad  func(error) // optional: called once when the URL is rejected (wrong UUID)
+	OnPing func(error) // optional: the outcome of every normal ping (not of /fail)
 
 	mu     sync.Mutex
 	fails  int
@@ -105,6 +106,9 @@ func (s *Switch) Cycle(ctx context.Context, probe func(context.Context) error) b
 		target = failURL(s.URL)
 	}
 	err := s.Ping(ctx, target)
+	if !failMode && s.OnPing != nil {
+		s.OnPing(err)
+	}
 	var be *badAnswer
 	switch {
 	case err == nil:

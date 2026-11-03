@@ -10,7 +10,7 @@ picks the right file for your device (`amd64`, `arm64` or `armhf`):
 v=0.1.0
 base=https://github.com/DockSeed/little-watchdog
 deb=little-watchdog_${v}_$(dpkg --print-architecture).deb
-wget $base/releases/download/v$v/$deb $base/releases/download/v$v/SHA256SUMS \
+wget -q --show-progress $base/releases/download/v$v/$deb $base/releases/download/v$v/SHA256SUMS \
   $base/releases/download/v$v/SHA256SUMS.sig $base/raw/v$v/allowed_signers
 ```
 
@@ -22,7 +22,8 @@ sha256sum -c --ignore-missing SHA256SUMS
 ssh-keygen -Y verify -f allowed_signers -I release@little-watchdog -n file -s SHA256SUMS.sig < SHA256SUMS
 ```
 
-Install, then log out and in again:
+Install, then log out and in again (close an SSH session completely, a new
+shell is not enough; with SSH connection sharing also run `ssh -O exit HOST`):
 
 ```sh
 sudo apt install ./$deb
@@ -32,8 +33,10 @@ Other distributions: unpack the `.tar.gz` and run `sudo ./install.sh`.
 
 ## 2. Telegram bot
 
-1. Install Telegram from [telegram.org/apps](https://telegram.org/apps) and
-   create an account.
+1. You need a Telegram account. It is free and needs a phone number. Alarms
+   reach you best through the app on your phone
+   ([telegram.org/apps](https://telegram.org/apps)); for the steps below,
+   [Telegram Web](https://web.telegram.org/a/) next to your terminal is handy.
 2. Open a chat with **@BotFather**, send `/newbot`, choose a name. You get a
    **token**. Keep it secret: whoever has it can send as your bot.
 3. Open a chat with your new bot and press **Start**.
@@ -64,6 +67,18 @@ you. It has a free plan and can also be self-hosted.
    email.
 
 If Telegram stays unusable, little-watchdog pings the URL with `/fail`.
+
+## Several machines
+
+Give each machine its own bot: ask @BotFather for one more bot per machine, add
+all of them to one group, and pair each machine with that group (step 2). Every
+message starts with the machine name, so you see where it comes from. In the
+group, `/status@name_of_the_bot` asks one machine; a plain `/status` is answered
+by every machine in the group.
+
+Two machines must not share one bot. Telegram hands a bot's messages to one
+reader only, so `/status` would stop working, and `little-wd` then shows
+"another program uses this bot".
 
 ## Update and remove
 

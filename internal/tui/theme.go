@@ -19,6 +19,8 @@ const (
 	sFocus
 	sFocusDim
 	sFail
+	sOK
+	sWarn // yellow: unstable
 	sHint
 	sKeys
 	sKey
@@ -30,6 +32,7 @@ const (
 	sDfail
 	sBtn
 	sBtnOn
+	sCaret // the edit position in a text field
 	nSty
 )
 
@@ -45,6 +48,8 @@ var looks = [nSty][3]string{
 	sFocus:    {"38;5;234;48;5;80", "30;46", "7"},
 	sFocusDim: {"38;5;252;48;5;240", "30;47", "7"},
 	sFail:     {"1;38;5;203;48;5;234", "1;91;40", "1"},
+	sOK:       {"1;38;5;114;48;5;234", "1;92;40", "1"},
+	sWarn:     {"1;38;5;220;48;5;234", "1;93;40", "1"},
 	sHint:     {"38;5;252;48;5;236", "37;40", ""},
 	sKeys:     {"38;5;245;48;5;236", "90;40", ""},
 	sKey:      {"1;38;5;80;48;5;236", "1;96;40", "1"},
@@ -56,6 +61,7 @@ var looks = [nSty][3]string{
 	sDfail:    {"1;38;5;203;48;5;236", "1;91;40", "1"},
 	sBtn:      {"38;5;252;48;5;238", "30;47", ""},
 	sBtnOn:    {"1;38;5;234;48;5;80", "1;30;46", "1;7"},
+	sCaret:    {"1;38;5;234;48;5;231", "1;30;47", "7"},
 }
 
 // glyphs are the box lines and marks; ASCII where the terminal cannot draw Unicode.
@@ -64,6 +70,7 @@ type glyphs struct {
 	on, off              string // [✓] / [ ]
 	radOn, radOff        string
 	arrow, bar, updown   string
+	dot                  string // between a value and its time
 }
 
 type theme struct {
@@ -71,8 +78,8 @@ type theme struct {
 	g     glyphs
 }
 
-var uniGlyphs = glyphs{"╭", "╮", "╰", "╯", "─", "│", "[✓]", "[ ]", "(•)", "( )", "›", "│", "↑↓"}
-var asciiGlyphs = glyphs{"+", "+", "+", "+", "-", "|", "[x]", "[ ]", "(*)", "( )", ">", "|", "^v"}
+var uniGlyphs = glyphs{"╭", "╮", "╰", "╯", "─", "│", "[✓]", "[ ]", "(•)", "( )", "›", "│", "↑↓", "·"}
+var asciiGlyphs = glyphs{"+", "+", "+", "+", "-", "|", "[x]", "[ ]", "(*)", "( )", ">", "|", "^v", "-"}
 
 var lowColourTerms = map[string]bool{"linux": true, "vt100": true, "vt102": true, "vt220": true, "ansi": true, "screen": true, "tmux": true, "cons25": true}
 

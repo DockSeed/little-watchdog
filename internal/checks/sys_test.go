@@ -47,7 +47,7 @@ func TestCPUUnknownUntilWindowFull(t *testing.T) {
 	}
 	now = now.Add(50 * time.Second)
 	write(500, 0)
-	if r := c.Run(context.Background()); r.Status != UNKNOWN || !strings.Contains(r.Value, "filling") {
+	if r := c.Run(context.Background()); r.Status != UNKNOWN || r.Value != "100% (50s of 1m40s avg)" {
 		t.Fatalf("filling window: %+v", r)
 	}
 }
@@ -96,5 +96,28 @@ func TestSensorReadIsSmallAndRegular(t *testing.T) {
 	}
 	if _, err := readSmall(dir); err == nil {
 		t.Fatal("directory read")
+	}
+}
+
+func TestCPUValueTexts(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "stat")
+	write := func(busy, idle int) {
+		os.WriteFile(p, []byte(fmt.Sprintf("cpu %d 0 0 %d 0 0 0 0\n", busy, idle)), 0o644)
+	}
+	now := time.Unix(1000, 0)
+	c := &CPU{Path: p, MaxPct: 90, Window: 15 * time.Minute, Every: time.Minute, Now: func() time.Time { return now }}
+	write(0, 0)
+	if r := c.Run(context.Background()); r.Value != "first value in 1 min" {
+		t.Fatal(r)
+	}
+	now = now.Add(3 * time.Minute)
+	write(12, 88)
+	if r := c.Run(context.Background()); r.Value != "12% (3m of 15m avg)" {
+		t.Fatal(r)
+	}
+	now = now.Add(12 * time.Minute)
+	write(24, 176)
+	if r := c.Run(context.Background()); r.Status != OK || r.Value != "12% (15m avg)" {
+		t.Fatal(r)
 	}
 }

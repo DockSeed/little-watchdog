@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/telegram"
 )
 
@@ -153,13 +154,18 @@ func Pair(ctx context.Context, o Options) (token string, chat int64, err error) 
 	step(Step{N: 3, Done: true, Note: "linked"})
 
 	// 4. test message
-	if err := cl.SendMessage(ctx, chat, "little-watchdog: setup test message"); err != nil {
+	if err := cl.SendMessage(ctx, chat, TestText(checks.Host())); err != nil {
 		fmt.Fprintf(out, "Test message FAILED: %v\n", err)
 		return "", 0, errors.New("could not send a test message")
 	}
 	fmt.Fprintln(out, "Test message sent.")
 	step(Step{N: 4, Done: true, Note: "sent"})
 	return token, chat, nil
+}
+
+// TestText is the message that confirms the link.
+func TestText(host string) string {
+	return "little-watchdog" + checks.On(host) + ": this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
 }
 
 func explain409(err error) error {

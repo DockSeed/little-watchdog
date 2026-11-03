@@ -32,16 +32,26 @@ if [ -d /run/systemd/system ]; then
 	fi
 fi
 
+# Colour only on a terminal and without NO_COLOR (no-color.org).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+	hd=$(printf '\033[1;32m') cm=$(printf '\033[1;36m') rs=$(printf '\033[0m')
+else
+	hd= cm= rs=
+fi
+
 user=${SUDO_USER:-}
 if [ -n "$user" ] && [ "$user" != root ] && getent passwd "$user" >/dev/null 2>&1; then
 	if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx little-wd; then
 		:
 	elif usermod -aG little-wd "$user" 2>/dev/null; then
-		echo "little-watchdog: added $user to the group little-wd."
-		echo "little-watchdog: log out and in again, then run: little-wd"
+		printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+		printf '    Added %s to the group little-wd.\n' "$user"
+		printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
 	fi
 else
-	echo "little-watchdog: to set it up, add your user to the group, log out and in again,"
-	echo "little-watchdog: then run little-wd:  sudo usermod -aG little-wd YOUR_USER"
+	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+	printf '    To set it up, add your user to the group:\n'
+	printf '        %ssudo usermod -aG little-wd YOUR_USER%s\n' "$cm" "$rs"
+	printf '    Then log out and in again and run:  %slittle-wd%s\n\n' "$cm" "$rs"
 fi
 exit 0

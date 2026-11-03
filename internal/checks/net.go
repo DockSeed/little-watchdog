@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -67,22 +66,23 @@ func (h *HTTP) Run(ctx context.Context) Result {
 	}
 	if err != nil {
 		if errors.Is(err, errBadRequest) {
-			return Result{Status: FAIL, Detail: "bad request"}
+			return Result{Status: FAIL, Detail: "the request could not be built"}
 		}
-		return Result{Status: FAIL, Detail: short(err), Value: short(err)}
+		p := Plain(err, h.timeout, h.url)
+		return Result{Status: FAIL, Detail: p, Value: p}
 	}
 	defer resp.Body.Close()
 	val := fmt.Sprintf("HTTP %d in %dms", resp.StatusCode, time.Since(start).Milliseconds())
 	if resp.StatusCode < 200 || resp.StatusCode > 399 {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("HTTP %d", resp.StatusCode), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("answered with HTTP %d", resp.StatusCode), Value: val}
 	}
 	if h.contains != "" {
 		found, err := containsStream(resp.Body, h.contains)
 		if err != nil {
-			return Result{Status: FAIL, Detail: "read body: " + short(err), Value: val}
+			return Result{Status: FAIL, Detail: "could not read the answer: " + short(err), Value: val}
 		}
 		if !found {
-			return Result{Status: FAIL, Detail: "HTTP " + fmt.Sprint(resp.StatusCode) + ", text not found", Value: val}
+			return Result{Status: FAIL, Detail: "HTTP " + fmt.Sprint(resp.StatusCode) + ", but the expected text was not found", Value: val}
 		}
 	}
 	return Result{Status: OK, Value: val}
@@ -157,7 +157,8 @@ func (t *TCP) Run(ctx context.Context) Result {
 		return Result{Status: OK, Value: "refused (alive)"}
 	}
 	if t.host {
-		return Result{Status: FAIL, NoAnswer: true, Value: short(err)}
+		return Result{Status: FAIL, NoAnswer: true, Value: Plain(err, t.timeout, t.addr)}
 	}
-	return Result{Status: FAIL, Detail: "port " + t.addr[strings.LastIndex(t.addr, ":")+1:] + " not reachable (" + short(err) + ")", Value: short(err)}
+	p := Plain(err, t.timeout, t.addr)
+	return Result{Status: FAIL, Detail: p, Value: p}
 }

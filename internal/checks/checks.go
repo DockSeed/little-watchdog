@@ -85,7 +85,7 @@ collect:
 	}
 	for i := range res {
 		if !done[i] {
-			res[i] = Result{Status: FAIL, NoAnswer: true, Detail: "no answer within " + timeout.String(), Value: "timeout"}
+			res[i] = Result{Status: FAIL, NoAnswer: true, Detail: "no answer within " + Dur(timeout), Value: "timeout"}
 		}
 	}
 	return res
@@ -121,7 +121,7 @@ func Build(cfg *config.Config, logf func(string, ...any)) []Check {
 		}
 	}
 	if cfg.CPUMaxPct > 0 {
-		cs = append(cs, &CPU{Path: "/proc/stat", MaxPct: cfg.CPUMaxPct, Window: cfg.CPUWindow, Now: time.Now})
+		cs = append(cs, &CPU{Path: "/proc/stat", MaxPct: cfg.CPUMaxPct, Window: cfg.CPUWindow, Every: cfg.Interval, Now: time.Now})
 	}
 	return cs
 }

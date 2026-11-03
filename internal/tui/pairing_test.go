@@ -17,10 +17,16 @@ func TestTelegramUsesTheConfigsAPIURLAndMarksPairing(t *testing.T) {
 	defer srv.Close()
 	p := newCfg(t, "TELEGRAM_API_URL="+srv.URL+"\n")
 	r := start(t, &App{Path: p, PollWindow: time.Minute}) // no App.APIURL: the URL must come from the file
-	r.send("jjj\r")
+	r.send("jjjj\r")
 	r.wait("Bot token")
 	r.send("1:a\r")
-	r.wait("waiting ...")
+	r.wait("waiting until ")
+	// nothing redraws while the code waits, or the terminal drops a mouse selection
+	n := len(r.out.String())
+	time.Sleep(1200 * time.Millisecond)
+	if m := len(r.out.String()); m != n {
+		t.Fatalf("screen redrawn while waiting for the code (%d new bytes)", m-n)
+	}
 	if !config.PairingActive(p, time.Now()) {
 		t.Fatal("daemon is not asked to step aside")
 	}

@@ -6,11 +6,14 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DockSeed/little-watchdog/internal/config"
+	"github.com/DockSeed/little-watchdog/internal/telegram"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
 
@@ -83,4 +86,38 @@ func TestStatusForAnotherBotIsNotAnswered(t *testing.T) {
 	waitFor(t, func() bool { return len(f.Texts()) == 1 })
 	cancel()
 	<-done
+}
+
+func TestLongStatusIsSentInParts(t *testing.T) {
+	f, srv := testfake.Start(tok)
+	defer srv.Close()
+	var buf bytes.Buffer
+	a, _ := newApp(t, srv.URL, "", &buf)
+	for i := 0; i < 300; i++ {
+		addCheck(a, fmt.Sprintf("web-service-with-a-fairly-long-name-%03d", i))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.Cycle(ctx)
+	done := make(chan struct{})
+	go func() { a.Poll(ctx); close(done) }()
+	time.Sleep(300 * time.Millisecond)
+	f.AddMessage(42, "/status")
+	time.Sleep(800 * time.Millisecond)
+	cancel()
+	<-done
+	got := f.Texts()
+	if len(got) < 2 {
+		t.Fatalf("%d parts", len(got))
+	}
+	all := strings.Join(got, "\n")
+	for i, p := range got {
+		if telegram.Len16(p) > telegram.MaxText {
+			t.Errorf("part %d is %d units", i, telegram.Len16(p))
+		}
+	}
+	for _, n := range []string{"-000", "-150", "-299"} {
+		if !strings.Contains(all, n) {
+			t.Errorf("%s missing from /status", n)
+		}
+	}
 }

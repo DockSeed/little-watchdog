@@ -32,7 +32,8 @@ func TestHeaderAndStatusSayStaleDaemon(t *testing.T) {
 	sf := writeState(t, ent{"tcp", "b", "OK", "open", 0, time.Time{}, time.Time{}})
 	state.Beat(sf, time.Now().Add(-time.Hour))
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: sized})
-	r.wait("daemon silent for")
+	r.wait("daemon not running")
+	has(t, r.frame(), "Status      ", "daemon not running")
 	r.send("\x03")
 	r.finish()
 }
@@ -63,7 +64,7 @@ func TestSaveWithoutDirectorySaysHowToInstall(t *testing.T) {
 	r := start(t, &App{Path: p, Size: sized, APIURL: srv.URL, PollWindow: time.Minute})
 	r.wait("Bot token")
 	r.send("1:a\r")
-	r.wait("waiting ...")
+	r.wait("waiting until ")
 	_, rest, _ := strings.Cut(r.frame(), "/start ")
 	f.AddMessage(777, "/start "+rest[:6])
 	r.wait("Cannot write")
@@ -93,8 +94,8 @@ func TestGroupHintSaysLogInAgainWhenTheGroupIsListedButNotActive(t *testing.T) {
 	p := newCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n")
 	os.Chmod(p, 0)
 	t.Cleanup(func() { os.Chmod(p, 0o600) })
-	r := start(t, &App{Path: p, Size: sized})
-	setGroup(t, "bob,alice", "alice", []int{1000}) // /etc/group lists alice, this session lacks gid 55555
+	// /etc/group lists alice, this session lacks gid 55555
+	r := startAs(t, &App{Path: p, Size: sized}, "bob,alice", "alice", []int{1000})
 	r.send("j")
 	r.wait("You are in the group little-wd, but this login does not know it yet")
 	lacks(t, r.frame(), "usermod")

@@ -73,7 +73,7 @@ func TestMigrateToChatID(t *testing.T) {
 	if strings.Count(all, "-100777|") != len(sent) || len(sent) != 2 {
 		t.Fatalf("all sends must go to the new chat, exactly alarm + one note: %q", sent)
 	}
-	if !strings.Contains(all, "http:web: down") || strings.Count(all, "chat moved to -100777, update TELEGRAM_CHAT_ID (little-wd") != 1 {
+	if !strings.Contains(all, "http:web on testhost is down since ") || !strings.Contains(all, ": down.") || strings.Count(all, "Telegram moved this chat to id -100777. The new id is used until restart. Update TELEGRAM_CHAT_ID") != 1 {
 		t.Fatalf("%q", sent)
 	}
 	if a.Cfg.ChatID != 42 {

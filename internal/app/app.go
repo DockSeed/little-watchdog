@@ -61,6 +61,7 @@ func (r *RedactWriter) Write(p []byte) (int, error) {
 }
 
 type App struct {
+	Host   string // machine name for messages; empty = leave out
 	Cfg    *config.Config
 	Log    *log.Logger
 	Checks []checks.Check
@@ -75,7 +76,7 @@ type App struct {
 
 	mu       sync.RWMutex // guards Cfg, Checks, TG, DM and notes against reload
 	redact   *RedactWriter
-	notes    []string                 // own notices (config problems) waiting for Telegram
+	notes    []note                   // own notices waiting for Telegram
 	bad      bool                     // an invalid config was already announced
 	badReads int                      // failed reads of the changed config in a row
 	moved    struct{ from, to int64 } // Telegram moved the group to a supergroup
@@ -98,7 +99,9 @@ func New(cfg *config.Config, out io.Writer) *App {
 	l := log.New(rw, "", log.LstdFlags)
 	a := &App{Cfg: cfg, Log: l, redact: rw, Now: time.Now, Clk: clock.Real(), kick: make(chan struct{}, 1), hup: make(chan struct{}, 1), debug: os.Getenv("LITTLE_WATCHDOG_DEBUG") != ""}
 	a.Checks = checks.Build(cfg, l.Printf)
+	a.Host = checks.Host()
 	a.Eng = state.NewEngine(cfg.FailAfter, cfg.RecoverAfter)
+	a.Eng.Host = a.Host
 	a.TG = telegram.New(cfg.APIURL, cfg.Token, sendTimeout)
 	a.DM = a.newDM(cfg)
 	return a
@@ -106,7 +109,16 @@ func New(cfg *config.Config, out io.Writer) *App {
 
 func (a *App) newDM(cfg *config.Config) *deadman.Switch {
 	dm := deadman.New(cfg.DeadmanURL, cfg.DeadmanEvery, a.Log.Printf)
-	dm.OnBad = func(err error) { a.notify("dead-man ping rejected: " + err.Error() + " (wrong UUID in DEADMAN_URL?)") }
+	dm.OnBad = func(err error) {
+		a.notify(checks.Msg(a.Host, "the dead-man ping was rejected: "+err.Error()+". Check the UUID in DEADMAN_URL."))
+	}
+	url := cfg.DeadmanURL
+	dm.OnPing = func(err error) {
+		now := a.Now()
+		if a.Eng.NoteDeadman(checks.URLFP(url), err, now) {
+			a.notify(checks.Msg(a.Host, fmt.Sprintf("dead-man switch is active, first ping OK at %s. If the pings stop, Healthchecks alarms you.", now.Format("15:04"))))
+		}
+	}
 	return dm
 }
 
@@ -132,6 +144,9 @@ func (a *App) LoadState() {
 	}
 	if w := a.Eng.Load(cfg.StateFile, valid); w != "" {
 		a.Log.Printf("warning: %s", w)
+	}
+	if cfg.DeadmanURL == "" {
+		a.Eng.ClearDeadman()
 	}
 }
 
@@ -166,7 +181,13 @@ func (a *App) sendN(ctx context.Context, text string, once bool) error {
 	if errors.As(err, &ae) && ae.MigrateTo != 0 && a.migrate(ae.MigrateTo) {
 		err = do(ctx, a.chat(), text)
 	}
+	if err != nil && ctx.Err() == context.Canceled { // shutting down: not a Telegram problem
+		return err
+	}
 	dm.NoteSend(err == nil)
+	if !errors.Is(err, telegram.ErrHeld) { // a flood wait is Telegram answering
+		a.Eng.NoteSend(err, a.Now())
+	}
 	a.noteTelegram(err)
 	return err
 }
@@ -197,14 +218,14 @@ func (a *App) migrate(to int64) bool {
 	a.moved.from, a.moved.to = a.Cfg.ChatID, to
 	a.mu.Unlock()
 	a.Log.Printf("warning: Telegram moved the chat to %d; using it until restart, update TELEGRAM_CHAT_ID", to)
-	a.notify(fmt.Sprintf("chat moved to %d, update TELEGRAM_CHAT_ID (little-wd → Telegram)", to))
+	a.notify(checks.Msg(a.Host, fmt.Sprintf("Telegram moved this chat to id %d. The new id is used until restart. Update TELEGRAM_CHAT_ID (little-wd, Telegram).", to)))
 	return true
 }
 
 // probe is the dead-man's reachability test: a real sendMessage to the chat, one attempt.
 func (a *App) probe(ctx context.Context) error {
 	_, _, _, dm := a.cur()
-	err := a.sendN(ctx, fmt.Sprintf("little-watchdog: Telegram reachable again after %d failed sends", dm.Fails()), true)
+	err := a.sendN(ctx, checks.Msg(a.Host, fmt.Sprintf("Telegram is reachable again after %d failed sends.", dm.Fails())), true)
 	if errors.Is(err, telegram.ErrHeld) {
 		return nil // flood wait: Telegram answers, it only asks us to slow down
 	}
@@ -306,11 +327,32 @@ func (a *App) Cycle(ctx context.Context) {
 	a.PingDeadman(ctx)
 }
 
-// chunk returns how many leading messages fit into one Telegram message.
-func chunk(q []state.Queued) int {
+// lateAfter is how long after its event a message may arrive before it says so.
+const lateAfter = 2 * time.Minute
+
+// late appends the event time to a message that reaches Telegram long after it happened.
+func (a *App) late(text string, at time.Time) string {
+	now := a.Now()
+	if at.IsZero() || now.Sub(at) <= lateAfter {
+		return text
+	}
+	return text + " (sent late, event at " + state.When(at, now) + ")"
+}
+
+// texts renders the queued messages as they are sent.
+func (a *App) texts(q []state.Queued) []string {
+	t := make([]string, len(q))
+	for i, m := range q {
+		t[i] = a.late(m.Text, m.At)
+	}
+	return t
+}
+
+// chunk returns how many leading texts fit into one Telegram message.
+func chunk(t []string) int {
 	n, size := 0, 0
-	for _, m := range q {
-		l := telegram.Len16(m.Text) + 1
+	for _, x := range t {
+		l := telegram.Len16(x) + 1
 		if n > 0 && size+l > telegram.MaxText {
 			break
 		}
@@ -319,19 +361,30 @@ func chunk(q []state.Queued) int {
 	return n
 }
 
-func joinText(q []state.Queued) string {
-	t := make([]string, len(q))
-	for i, m := range q {
-		t[i] = m.Text
+// logSendFail logs a failed send, but not the one caused by shutting down.
+func (a *App) logSendFail(ctx context.Context, err error) {
+	if ctx.Err() == nil {
+		a.Log.Printf("warning: telegram send failed: %v", err)
 	}
-	return strings.Join(t, "\n")
+}
+
+// splitLines cuts a long text at line breaks into parts that each fit one message.
+func splitLines(text string) []string {
+	ls := strings.Split(text, "\n")
+	var out []string
+	for len(ls) > 0 {
+		n := chunk(ls)
+		out = append(out, strings.Join(ls[:n], "\n"))
+		ls = ls[n:]
+	}
+	return out
 }
 
 // flush delivers pending messages bundled; a transient failure stops it until the next round.
 func (a *App) flush(ctx context.Context) {
 	q := a.Eng.Queue()
 	for len(q) > 0 {
-		n := chunk(q)
+		n := chunk(a.texts(q))
 		if !a.sendChunk(ctx, q[:n]) {
 			return
 		}
@@ -340,7 +393,8 @@ func (a *App) flush(ctx context.Context) {
 }
 
 func (a *App) sendChunk(ctx context.Context, q []state.Queued) bool {
-	err := a.send(ctx, joinText(q))
+	txt := a.texts(q)
+	err := a.send(ctx, strings.Join(txt, "\n"))
 	if err == nil {
 		for _, m := range q {
 			a.Eng.Delivered(m.ID, m.Text, a.Now())
@@ -348,12 +402,12 @@ func (a *App) sendChunk(ctx context.Context, q []state.Queued) bool {
 		return true
 	}
 	if !telegram.Permanent(err) || telegram.BadSetup(err) { // token/chat problems keep the queue
-		a.Log.Printf("warning: telegram send failed: %v", err)
+		a.logSendFail(ctx, err)
 		return false
 	}
 	// rejected for good: find the offender one by one so the others still get through
-	for _, m := range q {
-		err := a.send(ctx, m.Text)
+	for i, m := range q {
+		err := a.send(ctx, txt[i])
 		switch {
 		case err == nil:
 			a.Eng.Delivered(m.ID, m.Text, a.Now())
@@ -363,7 +417,7 @@ func (a *App) sendChunk(ctx context.Context, q []state.Queued) bool {
 			a.Eng.Drop(m.ID, m.Text)
 			a.Log.Printf("warning: message for %s dropped, Telegram rejects it: %v", m.ID, err)
 		default:
-			a.Log.Printf("warning: telegram send failed: %v", err)
+			a.logSendFail(ctx, err)
 			return false
 		}
 	}
@@ -407,6 +461,7 @@ func (a *App) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			wg.Wait()
+			a.saveState(true) // SIGTERM: keep counters and flap history
 			return nil
 		case <-t.C:
 		case <-a.hup:
@@ -422,12 +477,38 @@ func (a *App) deadmanLoop(ctx context.Context) {
 	}
 }
 
+// StartText is the message sent when the daemon starts; a long list of names is cut.
+func StartText(host string, cs []checks.Check) string {
+	names := make([]string, len(cs))
+	for i, c := range cs {
+		names[i] = checks.Sanitize(c.Name())
+	}
+	n := len(names)
+	if n > 6 {
+		n = 5
+	}
+	for {
+		list := strings.Join(names[:n], ", ")
+		if n < len(names) {
+			list += fmt.Sprintf(" and %d more", len(names)-n)
+		}
+		t := "watching " + checks.Count(len(names))
+		if len(names) > 0 {
+			t += " (" + list + ")"
+		}
+		t = checks.Msg(host, t+". /status shows the details.")
+		if n <= 1 || len([]rune(t)) <= 200 {
+			return t
+		}
+		n--
+	}
+}
+
 // sender owns all slow Telegram work so the check loop never waits for it.
 func (a *App) sender(ctx context.Context) {
 	_, cs, _, _ := a.cur()
-	if err := a.send(ctx, fmt.Sprintf("little-watchdog started, %d checks", len(cs))); err != nil {
-		a.Log.Printf("warning: start message failed: %v", err)
-	}
+	a.notify(StartText(a.Host, cs)) // queued like any notice, so a failed send is retried
+	a.flushNotes(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -438,12 +519,33 @@ func (a *App) sender(ctx context.Context) {
 	}
 }
 
+// conflictKind tells from the API text whether a webhook or another poller causes a getUpdates 409.
+func conflictKind(desc string) string {
+	d := strings.ToLower(desc)
+	switch {
+	case strings.Contains(d, "webhook"):
+		return state.ConflictWebhook
+	case strings.Contains(d, "other getupdates") || strings.Contains(d, "another") || strings.Contains(d, "one bot instance"):
+		return state.ConflictPoller
+	}
+	return state.ConflictUnknown
+}
+
+// conflictText is the one notice per 409 streak.
+func conflictText(host, kind string) string {
+	if kind == state.ConflictWebhook {
+		return checks.Msg(host, "a webhook is set for this bot, so /status does not work here. Remove the webhook (setup in little-wd, Telegram, offers it) or use one bot per machine.")
+	}
+	return checks.Msg(host, "this bot is also used elsewhere, so /status does not work here. Use one bot per machine.")
+}
+
 // Poll long-polls getUpdates and answers /status from the configured chat.
 func (a *App) Poll(ctx context.Context) {
 	var offset int64
 	var tg *telegram.Client
 	backoff := 5 * time.Second
 	warned := false
+	conflict := a.Eng.Conflict() // a streak that began before a restart is not announced again
 	var lastStatus time.Time
 	var bot string // our own @name: a command for another bot in the chat is not ours
 	for ctx.Err() == nil {
@@ -472,10 +574,16 @@ func (a *App) Poll(ctx context.Context) {
 			}
 			var ae *telegram.APIError
 			if errors.As(err, &ae) && ae.Code == 409 {
+				kind := conflictKind(ae.Desc)
 				if !warned {
-					a.Log.Printf("warning: Telegram getUpdates returned 409: a webhook is set or another process polls this bot; /status is unavailable until that is fixed (retrying with backoff up to 5 min)")
+					a.Log.Printf("warning: Telegram getUpdates returned 409 (%s): %s; /status is unavailable until that is fixed (retrying with backoff up to 5 min)", kind, ae.Desc)
 					warned = true
 				}
+				a.Eng.NoteUpdates(kind, a.Now())
+				if conflict == "" { // one notice per streak, not per retry
+					a.notify(conflictText(a.Host, kind))
+				}
+				conflict = kind
 			} else {
 				a.Log.Printf("warning: getUpdates: %v", err)
 			}
@@ -489,6 +597,11 @@ func (a *App) Poll(ctx context.Context) {
 			continue
 		}
 		backoff, warned = 5*time.Second, false
+		if conflict != "" {
+			conflict = ""
+			a.Eng.NoteUpdates("", a.Now())
+			a.Log.Printf("Telegram getUpdates works again, /status is available")
+		}
 		if len(us) == 0 && a.Clk.Now().Sub(began) < time.Second && a.Clk.Sleep(ctx, time.Second) != nil {
 			return // an empty answer that came at once is no long poll: do not spin
 		}
@@ -510,8 +623,13 @@ func (a *App) Poll(ctx context.Context) {
 			}
 			if now := a.Now(); cmd == "/status" && now.Sub(lastStatus) >= statusEvery {
 				lastStatus = now
-				if err := a.sendN(ctx, state.Brief(a.Eng.Snapshot(), a.Now()), true); err != nil {
-					a.Log.Printf("warning: /status reply failed: %v", err)
+				for _, part := range splitLines(state.Brief(a.Host, a.Eng.Snapshot(), a.Now())) {
+					if err := a.sendN(ctx, part, true); err != nil {
+						if ctx.Err() == nil {
+							a.Log.Printf("warning: /status reply failed: %v", err)
+						}
+						break
+					}
 				}
 			}
 		}

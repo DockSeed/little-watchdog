@@ -24,11 +24,51 @@ type snapshot struct {
 	esErr   string
 	ok, bad int
 	failed  []string
+	shaky   []string // failing, but not reported yet (below FAIL_AFTER)
 	lastMsg time.Time
 	rows    []srow
 	ents    []state.Entry
 	stale   bool // the daemon has not beaten for two intervals
 	age     time.Duration
+	tg      state.Telegram // how the daemon's sends went
+	dm      state.Deadman  // how the dead-man pings went
+	linked  time.Time      // the setup's test message
+	pairing bool           // setup polls the bot right now
+	pending int            // messages waiting for Telegram
+	up      state.Updates  // getUpdates conflict, if any
+	foot    *state.Footprint
+}
+
+// errStale is how long an old send error stays red when nothing is waiting to be sent.
+const errStale = 30 * time.Minute
+
+// errAt is the time of the latest failed send.
+func (s *snapshot) errAt() time.Time {
+	if !s.tg.ErrAt.IsZero() {
+		return s.tg.ErrAt
+	}
+	return s.tg.ErrSince
+}
+
+// tgErr is the current send problem; a test message after it counts as a fix.
+func (s *snapshot) tgErr() string {
+	if s.tg.Err == "" || s.linked.After(s.errAt()) || s.tgOld() {
+		return ""
+	}
+	return s.tg.Err
+}
+
+// tgOld: the last send failed long ago and nothing waits, so no new attempt was made since.
+func (s *snapshot) tgOld() bool {
+	return s.tg.Err != "" && s.pending == 0 && time.Since(s.errAt()) > errStale
+}
+
+// tgLast is the last message that reached Telegram.
+func (s *snapshot) tgLast() time.Time {
+	if s.linked.After(s.tg.LastOKAt) {
+		return s.linked
+	}
+	return s.tg.LastOKAt
 }
 
 // refresh re-reads what changed: the config only when its text differs, the state only when its file did.
@@ -50,27 +90,47 @@ func (m *model) refresh() {
 	} else if sig := statSig(s.cfg.StateFile); sig != m.stSig || sig == (stateSig{}) {
 		m.stSig = sig
 		var err error
-		s.es, s.esErr = nil, ""
-		if s.es, err = state.ReadFile(s.cfg.StateFile); err != nil {
+		var st state.Snap
+		s.es, s.esErr, s.tg, s.dm, s.up, s.foot = nil, "", state.Telegram{}, state.Deadman{}, state.Updates{}, nil
+		if st, err = state.ReadAll(s.cfg.StateFile); err != nil {
 			s.esErr = err.Error()
+		} else {
+			s.es = st.Entries
+			if st.Telegram != nil {
+				s.tg = *st.Telegram
+			}
+			if st.Deadman != nil {
+				s.dm = *st.Deadman
+			}
+			if st.Updates != nil {
+				s.up = *st.Updates
+			}
+			s.foot = st.Foot
 		}
 	}
-	s.ok, s.bad, s.failed, s.lastMsg = 0, 0, nil, time.Time{}
+	s.ok, s.bad, s.failed, s.shaky, s.lastMsg, s.pending = 0, 0, nil, nil, time.Time{}, 0
 	for _, e := range s.es {
 		switch e.Reported {
-		case checks.OK:
-			s.ok++
+		case checks.OK, checks.UNKNOWN:
+			if e.Fails > 0 {
+				s.shaky = append(s.shaky, e.Name)
+			} else if e.Reported == checks.OK {
+				s.ok++
+			}
 		case checks.FAIL:
 			s.bad++
 			s.failed = append(s.failed, e.Name)
 		}
+		s.pending += len(e.Pending)
 		if e.LastMsgAt.After(s.lastMsg) {
 			s.lastMsg = e.LastMsgAt
 		}
 	}
 	s.rows, s.ents = buildRows(s.es)
-	s.stale, s.age = false, 0
+	s.stale, s.age, s.pairing, s.linked = false, 0, false, time.Time{}
 	if s.cfg != nil {
+		s.pairing = config.PairingActive(m.file.Path, time.Now())
+		s.linked, _ = config.LinkedAt(m.file.Path)
 		s.age, s.stale = state.Stale(s.cfg.StateFile, s.cfg.StaleAfter(), time.Now())
 	}
 	m.snap = s
@@ -105,31 +165,24 @@ func StatusLines(es []state.Entry, now time.Time, w int) []string {
 	return out
 }
 
-var serviceTypes = []string{"http", "tcp", "host"}
-var hostTypes = []string{"cpu", "mem", "disk", "temp"}
+var serviceTypes = state.ServiceTypes
+var hostTypes = state.MachineTypes
 
-func rank(list []string, t string) int {
-	for i, x := range list {
-		if x == t {
-			return i
-		}
-	}
-	return len(list)
-}
+func rank(list []string, t string) int { return state.Rank(list, t) }
 
 type srow struct {
 	hdr string // section header, or
 	ent int    // index into the entry list when hdr is empty
 }
 
-// statusRows groups the entries into "Services" and "This host"; ents is in display order.
+// statusRows groups the entries into "This machine" and "Services" (as /status does); ents is in display order.
 func (m *model) statusRows() ([]srow, []state.Entry) { return m.snap.rows, m.snap.ents }
 
 func buildRows(es []state.Entry) (rows []srow, ents []state.Entry) {
 	for _, sec := range []struct {
 		name  string
 		types []string
-	}{{"Services", serviceTypes}, {"This host", hostTypes}} {
+	}{{state.MachineHead, hostTypes}, {state.ServiceHead, serviceTypes}} {
 		var part []state.Entry
 		for _, e := range es {
 			if rank(sec.types, e.Type) < len(sec.types) {
@@ -205,57 +258,120 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
-func every(d time.Duration) string {
-	s := d.String()
-	s = strings.TrimSuffix(s, "0s")
-	return strings.TrimSuffix(s, "0m")
-}
+func every(d time.Duration) string { return checks.Compact(d) }
 
 // menuValue is the live value next to a menu item; it needs no network.
 func (m *model) menuValue(it string) string {
+	v, _ := m.menuVal(it)
+	return v
+}
+
+// menuVal is menuValue and its colour (sBg = plain).
+func (m *model) menuVal(it string) (string, sty) {
 	c := m.snap.cfg
 	if it == "Quit" {
-		return ""
+		return "", sBg
 	}
 	if m.mode == modeExplore && it != "Status" {
-		return "unknown, config not readable"
+		return "locked, see the hint below", sBg
 	}
 	switch it {
 	case "Status":
 		switch {
+		case m.snap.stale:
+			return "daemon not running", sFail
 		case len(m.snap.es) == 0:
-			return "no state yet"
+			return "no state yet", sBg
+		case m.snap.bad > 0 && len(m.snap.shaky) > 0:
+			return fmt.Sprintf("%d FAIL: %s, %d unstable", m.snap.bad, strings.Join(m.snap.failed, ", "), len(m.snap.shaky)), sFail
 		case m.snap.bad > 0:
-			return fmt.Sprintf("%d OK, %d FAIL (%s)", m.snap.ok, m.snap.bad, strings.Join(m.snap.failed, ", "))
+			return fmt.Sprintf("%d FAIL: %s", m.snap.bad, strings.Join(m.snap.failed, ", ")), sFail
+		case len(m.snap.shaky) > 0:
+			return fmt.Sprintf("%d OK, %d unstable: %s", m.snap.ok, len(m.snap.shaky), strings.Join(m.snap.shaky, ", ")), sWarn
 		}
-		return fmt.Sprintf("%d OK", m.snap.ok)
+		return "all OK", sOK
 	case "Add check":
-		return "Website, port or host"
+		return "Website, port or host", sBg
 	}
 	if c == nil {
-		return "config invalid"
+		return m.snap.cfgErr, sFail
 	}
 	switch it {
 	case "Remove check":
-		return plural(len(allChecks(c)), "check", "checks")
+		return plural(len(allChecks(c)), "check", "checks"), sBg
+	case "System checks":
+		on := 0
+		rows := sysChecks(c)
+		for _, s := range rows {
+			if s.on {
+				on++
+			}
+		}
+		if on == len(rows) {
+			return fmt.Sprintf("%d on", on), sBg
+		}
+		return fmt.Sprintf("%d on, %d off", on, len(rows)-on), sBg
 	case "Telegram":
-		if c.Token != "" && c.ChatID != 0 {
-			return "chat set"
-		}
-		return "not set"
+		return m.telegramValue(c, time.Now())
 	case "Dead-man switch":
-		if c.DeadmanURL != "" {
-			return "Every " + every(c.DeadmanEvery)
-		}
-		return "off"
+		return m.deadmanValue(c, time.Now())
 	}
-	return ""
+	return "", sBg
+}
+
+// dmMeta is the daemon's dead-man record, if it belongs to the URL in the config.
+func (s *snapshot) dmMeta() (state.Deadman, bool) {
+	return s.dm, s.cfg != nil && s.cfg.DeadmanURL != "" && s.dm.URLFP == checks.URLFP(s.cfg.DeadmanURL)
+}
+
+func (m *model) deadmanValue(c *config.Config, now time.Time) (string, sty) {
+	d, mine := m.snap.dmMeta()
+	ev := "every " + every(c.DeadmanEvery)
+	switch {
+	case c.DeadmanURL == "":
+		return "off", sBg
+	case m.snap.stale:
+		return "daemon not running", sFail
+	case mine && d.Err != "":
+		return fmt.Sprintf("last ping failed %s: %s", clock(d.ErrSince, now), d.Err), sFail
+	case mine && !d.LastOKAt.IsZero():
+		return ev + ", last ping " + clock(d.LastOKAt, now), sBg
+	}
+	return ev + ", no ping yet", sBg
+}
+
+func (m *model) telegramValue(c *config.Config, now time.Time) (string, sty) {
+	s := &m.snap
+	switch err := s.tgErr(); {
+	case c.Token == "" || c.ChatID == 0:
+		return "not set up", sBg
+	case s.pairing:
+		return "pairing in progress", sBg
+	case s.stale:
+		return "linked, daemon not running", sFail
+	case err != "" && s.pending > 0:
+		return fmt.Sprintf("%d waiting: not reachable since %s", s.pending, clock(s.tg.ErrSince, now)), sFail
+	case err != "":
+		return "last send failed " + clock(s.errAt(), now), sFail
+	case s.up.Conflict == state.ConflictWebhook:
+		return "a webhook is set for this bot: /status does not work", sFail
+	case s.up.Conflict != "":
+		return "another program uses this bot: /status does not work", sFail
+	case s.tgOld() && !s.tgLast().IsZero():
+		return "linked, last message " + clock(s.tgLast(), now) + "; a send failed " + clock(s.errAt(), now), sWarn
+	case !s.tgLast().IsZero():
+		return "linked, last message " + clock(s.tgLast(), now), sBg
+	case s.tgOld():
+		return "linked, a send failed " + clock(s.errAt(), now) + ", none since", sWarn
+	}
+	return "linked, nothing sent yet", sBg
 }
 
 var about = map[string]string{
 	"Status":          "What every check said at the daemon's last cycle (every INTERVAL). The screen updates every 2 s.",
 	"Add check":       "Watch a website, a TCP port or a host. It is checked once before it is saved.",
 	"Remove check":    "Pick a check and remove it from the config.",
+	"System checks":   "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
 	"Telegram":        "Set up the bot token and pair your chat with a one-time code.",
 	"Dead-man switch": "Healthchecks-style URL pinged every DEADMAN_EVERY, so you notice if little-wd dies.",
 	"Quit":            "Leave the program.",
@@ -283,7 +399,7 @@ func (m *model) render(out io.Writer) {
 
 	crumb := ""
 	hint, keys := "", []kv{}
-	fr.frameBox(map[screen]string{scMenu: "Menu", scStatus: "Status", scRemove: "Remove check", scBlank: m.flow}[m.scr])
+	fr.frameBox(map[screen]string{scMenu: "Menu", scStatus: "Status", scRemove: "Remove check", scSys: "System checks", scBlank: m.flow}[m.scr])
 	switch m.scr {
 	case scMenu:
 		hint, keys = m.drawMenu(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
@@ -293,6 +409,9 @@ func (m *model) render(out io.Writer) {
 	case scRemove:
 		crumb = "Remove check"
 		hint, keys = m.drawRemove(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "remove"}, {"Esc", "menu"}, {"?", "help"}}
+	case scSys:
+		crumb = "System checks"
+		hint, keys = m.drawSys(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "change"}, {"Space", "on/off"}, {"Esc", "menu"}, {"?", "help"}}
 	default:
 		crumb = m.flow
 	}
@@ -318,7 +437,8 @@ func (m *model) render(out io.Writer) {
 		m.drawHelp(fr)
 		keys = []kv{{"Enter", "close"}, {"Esc", "close"}}
 	}
-	if m.scr == scMenu && m.dk == dNone && m.mode != modeFull && locked(menuItems[m.cur], m.mode) {
+	// In explore mode every change is locked, so the way out shows on every item.
+	if m.scr == scMenu && m.dk == dNone && (m.mode == modeExplore || m.mode != modeFull && locked(menuItems[m.cur], m.mode)) {
 		hint = strings.ToUpper(needGroup()[:1]) + needGroup()[1:] + "."
 	}
 	m.drawChrome(fr, crumb, hint, keys, now)
@@ -347,30 +467,55 @@ func (m *model) drawChrome(fr *frame, crumb, hint string, keys []kv, now time.Ti
 		cv.text(left, 0, "  "+g.arrow+" "+crumb, sHeadInfo)
 	}
 	var right string
+	chip, chipSt := "", sBg
 	switch {
 	case m.mode == modeExplore:
 		right = "explore mode, no changes"
 	case m.mode == modeReadOnly:
 		right = "read-only"
 	case m.snap.stale:
-		right = "daemon not running?"
-		if m.snap.age > 0 {
-			right = fmt.Sprintf("daemon silent for %s?", m.snap.age.Round(time.Second))
-		}
+		chip, chipSt = "daemon not running", sFail
+	case m.snap.cfg == nil && m.snap.cfgErr != "":
+		chip, chipSt = "config invalid", sFail
 	case m.snap.cfg == nil && m.snap.es == nil:
 		right = "no state"
+	case len(m.snap.es) == 0:
+		right = "no state yet"
+	case m.snap.bad > 0:
+		chip, chipSt = fmt.Sprintf("%d FAIL", m.snap.bad), sFail
+	case m.snap.tgErr() != "" && m.snap.cfg != nil && m.snap.cfg.Token != "":
+		chip, chipSt = "Telegram not reachable", sFail
+	case m.snap.up.Conflict != "" && m.snap.cfg != nil && m.snap.cfg.Token != "":
+		chip, chipSt = "/status not working", sFail
+	case func() bool { d, ok := m.snap.dmMeta(); return ok && d.Err != "" }():
+		chip, chipSt = "Dead-man ping failing", sFail
+	case len(m.snap.shaky) > 0:
+		chip, chipSt = fmt.Sprintf("%d unstable", len(m.snap.shaky)), sWarn
 	default:
-		right = fmt.Sprintf("%d OK  %d FAIL", m.snap.ok, m.snap.bad)
-		if !m.snap.lastMsg.IsZero() {
-			right += "  sent " + state.Ago(m.snap.lastMsg, now)
+		chip, chipSt = "all OK", sOK
+	}
+	// the health chip sits at the right edge on a dark cell; host and plain text left of it
+	if m.host != "" {
+		if right != "" {
+			right = m.host + " " + g.bar + " " + right
+		} else {
+			right = m.host
 		}
 	}
-	if m.host != "" {
-		right = m.host + " " + g.bar + " " + right
+	if chip != "" {
+		chip = " " + chip + " "
 	}
 	if avail := fr.w - left - 3; avail > 0 {
-		right = fit(right, avail)
-		cv.text(fr.w-1-len([]rune(right)), 0, right, sHeadInfo)
+		chip = fit(chip, avail)
+		x := fr.w - 1 - len([]rune(chip))
+		if chip != "" {
+			cv.text(x, 0, chip, chipSt)
+			x--
+		}
+		if w := x - left - 3; w > 0 && right != "" {
+			right = fit(right, w)
+			cv.text(x-len([]rune(right)), 0, right, sHeadInfo)
+		}
 	}
 	for i, l := range wrap(hint, max(fr.w-2, 1)) {
 		if i < 2 && hint != "" {
@@ -412,7 +557,8 @@ func scrollOff(sel, total, room int) int {
 func (m *model) drawMenu(fr *frame) string {
 	for i, it := range menuItems {
 		lock := locked(it, m.mode)
-		lab, val, bar := sRowBold, sBg, sBg
+		lab, bar := sRowBold, sBg
+		text, val := m.menuVal(it)
 		if lock {
 			lab, val = sRowDim, sRowDim
 		}
@@ -424,25 +570,72 @@ func (m *model) drawMenu(fr *frame) string {
 			fr.row(i, bar)
 		}
 		fr.put(i, 2, it, lab)
-		fr.put(i, 22, m.menuValue(it), val)
+		fr.put(i, 22, text, val)
+	}
+	if m.snap.foot != nil && fr.ih > len(menuItems)+1 && !m.snap.stale {
+		fr.put(fr.ih-1, 2, footLine(m.snap.foot), sRowDim)
+	}
+	if it := menuItems[m.cur]; m.snap.cfg == nil && m.snap.cfgErr != "" && it != "Status" && it != "Add check" && it != "Quit" {
+		return "Fix " + m.file.Path + ": " + m.snap.cfgErr
 	}
 	if it := menuItems[m.cur]; it == "Status" && m.snap.stale {
 		return daemonDown
 	} else if it == "Status" && m.snap.cfg != nil {
 		return fmt.Sprintf("What every check said at the daemon's last cycle (every %s). The screen updates every 2 s.", every(m.snap.cfg.Interval))
 	}
+	switch it := menuItems[m.cur]; {
+	case it == "Telegram" && m.snap.up.Conflict != "" && !m.snap.stale:
+		return "Telegram hands messages to one reader only: a webhook or another program has this bot. Use one bot per machine (docs/setup.md)."
+	case it == "Telegram" && m.snap.cfg != nil && m.snap.cfg.Token != "" && m.mode == modeFull:
+		return "Linked: " + checks.TokenFP(m.snap.cfg.Token) + ", chat " + fmt.Sprint(m.snap.cfg.ChatID) + ". " + about[it]
+	case it == "Dead-man switch" && m.snap.cfg != nil && m.snap.cfg.DeadmanURL != "" && m.mode == modeFull:
+		return "Pinging " + checks.URLFP(m.snap.cfg.DeadmanURL) + ". " + about[it]
+	}
 	return about[menuItems[m.cur]]
 }
 
+// footLine is what the daemon costs, from its last state write.
+func footLine(f *state.Footprint) string {
+	up := f.At.Sub(f.Started)
+	s := fmt.Sprintf("little-wd: %d MB RAM", max((f.RSSKB+512)/1024, 1))
+	if up >= time.Minute {
+		s += fmt.Sprintf(" · %.1f%% CPU", f.CPUSec/up.Seconds()*100)
+	}
+	if up < 10*time.Minute {
+		s += fmt.Sprintf(" · %s since start", plural(f.Writes, "disk write", "disk writes"))
+	} else if r := float64(f.Writes) / up.Hours(); r < 10 {
+		s += fmt.Sprintf(" · %.1f disk writes/h", r)
+	} else {
+		s += fmt.Sprintf(" · %.0f disk writes/h", r)
+	}
+	return s + " · up " + upText(up)
+}
+
+func upText(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%d min", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h", int(d.Hours()))
+	}
+	return fmt.Sprintf("%d d", int(d.Hours()/24))
+}
+
 func (m *model) markOf(e state.Entry) (string, sty) {
+	if unstable(e) && m.snap.cfg != nil {
+		return fmt.Sprintf("[%d/%d]", e.Fails, m.snap.cfg.FailAfter), sWarn
+	}
 	switch e.Reported {
 	case checks.OK:
-		return "[OK]", sBg
+		return "[OK]", sOK
 	case checks.FAIL:
 		return "[FAIL]", sFail
 	}
 	return "[?]", sRowDim
 }
+
+// unstable: failing, but below FAIL_AFTER, so not reported yet.
+func unstable(e state.Entry) bool { return e.Reported != checks.FAIL && e.Fails > 0 }
 
 // nameWidth sizes the name column to the longest name, between 14 and a third of the width.
 func nameWidth(fr *frame, names func(func(string))) int {
@@ -501,7 +694,30 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 		fr.put(y, 1, mk, ms)
 		fr.put(y, 8, fit(e.Name, nw-1), ts)
 		fr.put(y, 8+nw, e.Type, ts)
-		fr.put(y, vx, fit(e.Value, max(fr.iw-vx-len([]rune(ago))-3, 0)), ts)
+		vw := max(fr.iw-vx-len([]rune(ago))-3, 0)
+		value := e.Value
+		if unstable(e) && e.Detail != "" {
+			value = e.Detail
+		}
+		if e.Reported == checks.FAIL && e.OKs > 0 && m.snap.cfg != nil {
+			back := fmt.Sprintf("back %d/%d", e.OKs, m.snap.cfg.RecoverAfter)
+			ws := sWarn
+			if r.ent == m.scur {
+				ws = sFocus
+			}
+			fr.put(y, vx, back, ws)
+			vx += len(back) + 1
+			vw = max(vw-len(back)-1, 0)
+		}
+		val := fit(value, vw)
+		fr.put(y, vx, val, ts)
+		if at := " " + fr.th.g.dot + " " + e.LastRun.Local().Format("15:04"); !e.LastRun.IsZero() && e.Value != "" && len([]rune(val))+len(at) <= vw {
+			ds := sRowDim
+			if r.ent == m.scur {
+				ds = sFocusDim
+			}
+			fr.put(y, vx+len([]rune(val)), at, ds)
+		}
 		fr.put(y, fr.iw-len([]rune(ago))-2, ago, ts)
 	}
 	if m.snap.stale {
@@ -522,7 +738,7 @@ func (m *model) drawRemove(fr *frame) string {
 	sel := 0
 	for i, it := range m.items {
 		if i == 0 || it.host != m.items[i-1].host {
-			rows = append(rows, rrow{hdr: map[bool]string{false: "Services", true: "This host"}[it.host]})
+			rows = append(rows, rrow{hdr: map[bool]string{false: state.ServiceHead, true: state.MachineHead}[it.host]})
 		}
 		if i == m.lcur {
 			sel = len(rows)
@@ -646,7 +862,10 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 		rows = append(rows, lab("State", fmt.Sprintf("%s since %s", e.Reported, clock(e.Since, now)), sDlg))
 	}
 	rows = append(rows, labWrap(lab, "Last", e.Value, vw)...)
-	tg := "nothing sent yet"
+	if !e.LastRun.IsZero() {
+		rows = append(rows, lab("Checked", clock(e.LastRun, now), sDlg))
+	}
+	tg := "no alarm so far"
 	if !e.LastMsgAt.IsZero() {
 		tg = "sent at " + clock(e.LastMsgAt, now)
 	}
@@ -665,19 +884,42 @@ func labWrap(lab func(string, string, sty) drow, l, v string, n int) (rs []drow)
 	return
 }
 
-// fieldView shows v in a field of fw cells; a long value scrolls with the cursor at its end.
-func fieldView(v string, fw int, focus bool) string {
+// fieldView cuts v to fw cells. Focused, it returns the text before the caret, the
+// caret cell and the rest (filled with "_"); a long value scrolls to keep the caret in view.
+func fieldView(v string, fw, pos int, focus bool) (pre, cur, post string) {
 	r := []rune(v)
-	if focus {
-		if len(r)+1 > fw {
-			r = append([]rune("<"), r[len(r)-fw+2:]...)
+	if !focus {
+		if len(r) > fw {
+			return string(r[:fw-1]) + ">", "", ""
 		}
-		return string(r) + strings.Repeat("_", max(fw-len(r), 0))
+		return v, "", ""
 	}
-	if len(r) > fw {
-		return string(r[:fw-1]) + ">"
+	p := min(max(pos, 0), len(r))
+	st := 0
+	if len(r)+1 > fw {
+		st = max(p-fw+2, 0)
 	}
-	return v
+	cells := make([]rune, fw)
+	for i := range cells {
+		switch c := st + i; {
+		case c < len(r):
+			cells[i] = r[c]
+		default:
+			cells[i] = '_'
+		}
+	}
+	if st > 0 {
+		cells[0] = '<'
+	}
+	if st+fw < len(r) {
+		cells[fw-1] = '>'
+	}
+	cx := min(p-st, fw-1)
+	c := " "
+	if p < len(r) {
+		c = string(r[p])
+	}
+	return string(cells[:cx]), c, string(cells[cx+1:])
 }
 
 func (m *model) drawForm(fr *frame) (string, []kv) {
@@ -703,16 +945,23 @@ func (m *model) drawForm(fr *frame) (string, []kv) {
 	fw := max(w-4-10, 1)
 	for i, l := range ks.labels {
 		v := f.vals[i]
-		if f.secret {
+		if f.secret && !f.reveal {
 			v = strings.Repeat("*", len([]rune(v)))
 		}
 		r := drow{segs: []seg{{fmt.Sprintf("%-10s", l), sDdim}}}
 		if class == 0 && fi == i {
-			r.segs = append(r.segs, seg{fieldView(v, fw, true), sDbold})
+			r.segs[0].st = sDbold
+			pre, cur, post := fieldView(v, fw, f.pos[i], true)
+			r.segs = append(r.segs, seg{pre, sDbold}, seg{cur, sCaret}, seg{post, sDbold})
 		} else {
-			r.segs = append(r.segs, seg{fieldView(v, fw, false), sDlg})
+			pre, _, _ := fieldView(v, fw, 0, false)
+			r.segs = append(r.segs, seg{pre, sDlg})
 		}
 		rows = append(rows, r)
+	}
+	if f.cur != "" {
+		rows = append(rows, line("", sDlg))
+		rows = append(rows, wrapRows(f.cur, w-4, sDdim)...)
 	}
 	rows = append(rows, line("", sDlg))
 	switch {
@@ -728,6 +977,9 @@ func (m *model) drawForm(fr *frame) (string, []kv) {
 	rows = append(rows, line("", sDlg), fr.buttons(f.btns, focus))
 	fr.dialog(f.title, w, rows, 1)
 	keys := []kv{{fr.th.g.updown + " Tab", "move"}, {"Enter", "next"}, {"Esc", "cancel"}}
+	if f.secret {
+		keys = append(keys, kv{"Ctrl-R", "show/hide"})
+	}
 	hint := ""
 	if class == 0 && fi < len(ks.hints) {
 		hint = ks.hints[fi]
@@ -758,10 +1010,11 @@ func (m *model) drawTelegram(fr *frame, now time.Time) {
 		}
 		rows = append(rows, r)
 		if i == 2 && t.code != "" && !t.done[2] {
-			left := max(time.Until(t.until), 0).Round(time.Second)
+			// No live countdown: a redraw every second clears a mouse selection,
+			// and the code must stay copyable.
 			rows = append(rows,
 				drow{segs: []seg{{strings.Repeat(" ", 23+4), sDlg}, {"/start " + t.code, sDtitle}}},
-				drow{segs: []seg{{strings.Repeat(" ", 23), sDlg}, {fmt.Sprintf("waiting ... %d:%02d left", int(left.Minutes()), int(left.Seconds())%60), sDdim}}})
+				drow{segs: []seg{{strings.Repeat(" ", 23), sDlg}, {"waiting until " + clock(t.until, now), sDdim}}})
 		}
 	}
 	rows = append(rows, line("", sDlg), fr.buttons([]string{"Cancel"}, 0))
@@ -806,6 +1059,8 @@ func (m *model) drawHelp(fr *frame) {
 		k(g.updown+" / j k", "move"),
 		k("Enter", "open the entry, show details"),
 		k("Tab", "next field or button"),
+		k("Ctrl-R", "show or hide a secret you type"),
+		k("Space", "System checks: turn a check on or off"),
 		k("Esc", "back to the menu, close a window"),
 		k("Q", "quit"),
 		k("?", "this help"),

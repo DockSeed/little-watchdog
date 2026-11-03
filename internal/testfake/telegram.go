@@ -21,6 +21,7 @@ type Telegram struct {
 	Sent     []string // texts of sendMessage
 	Fail     bool     // sendMessage answers 500
 	Fail409  bool     // getUpdates answers 409
+	Desc409  string   // its description (default: another poller)
 	FailCode int      // sendMessage answers this status (overrides Fail)
 	// RejectContains makes sendMessage answer 400 for texts containing it.
 	RejectContains string
@@ -88,7 +89,11 @@ func (f *Telegram) Handler() http.Handler {
 			reply(w, 200, ok(true))
 		case "getUpdates":
 			if f.Fail409 {
-				reply(w, 409, map[string]any{"ok": false, "error_code": 409, "description": "Conflict: terminated by other getUpdates request"})
+				desc := f.Desc409
+				if desc == "" {
+					desc = "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"
+				}
+				reply(w, 409, map[string]any{"ok": false, "error_code": 409, "description": desc})
 				return
 			}
 			off, _ := p["offset"].(float64)

@@ -49,7 +49,7 @@ func notMounted(path string) (bool, error) {
 
 func (d *Disk) Run(ctx context.Context) Result {
 	if !d.busy.CompareAndSwap(false, true) {
-		return Result{Status: FAIL, NoAnswer: true, Detail: "previous statfs still hanging", Value: "hanging"}
+		return Result{Status: FAIL, NoAnswer: true, Detail: "the last disk query is still stuck", Value: "hanging"}
 	}
 	defer d.busy.Store(false)
 	var st syscall.Statfs_t
@@ -58,12 +58,12 @@ func (d *Disk) Run(ctx context.Context) Result {
 		sf = syscall.Statfs
 	}
 	if nm, err := notMounted(d.Path); err != nil {
-		return Result{Status: FAIL, Detail: "stat " + d.Path + ": " + short(err), Value: short(err)}
+		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err)}
 	} else if nm {
-		return Result{Status: FAIL, Detail: d.Path + " not mounted", Value: "not mounted"}
+		return Result{Status: FAIL, Detail: d.Path + " is not mounted", Value: "not mounted"}
 	}
 	if err := sf(d.Path, &st); err != nil {
-		return Result{Status: FAIL, Detail: "statfs " + d.Path + ": " + short(err), Value: short(err)}
+		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err)}
 	}
 	if st.Blocks == 0 {
 		return Result{Status: UNKNOWN, Value: "no blocks"}
@@ -71,7 +71,7 @@ func (d *Disk) Run(ctx context.Context) Result {
 	free := float64(st.Bavail) / float64(st.Blocks) * 100
 	val := fmt.Sprintf("%.0f%% free", free)
 	if free < d.MinFreePct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% free (min %g%%)", free, d.MinFreePct), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% free, limit %g%%", free, d.MinFreePct), Value: val}
 	}
 	return Result{Status: OK, Value: val}
 }
@@ -133,7 +133,7 @@ func (m *Mem) Run(ctx context.Context) Result {
 	p := float64(avail) / float64(total) * 100
 	val := fmt.Sprintf("%.0f%% available", p)
 	if p < m.MinAvailPct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% available (min %g%%)", p, m.MinAvailPct), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% memory available, limit %g%%", p, m.MinAvailPct), Value: val}
 	}
 	return Result{Status: OK, Value: val}
 }
@@ -211,7 +211,7 @@ func (t *Temp) Run(ctx context.Context) Result {
 	val := fmt.Sprintf("%.1f C", v)
 	switch {
 	case v > t.MaxC:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C (max %g C)", v, t.MaxC), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C, limit %g C", v, t.MaxC), Value: val}
 	case v >= t.MaxC-5:
 		return Result{Status: OK, Value: val, Hold: true}
 	}
@@ -223,6 +223,7 @@ type CPU struct {
 	Path   string
 	MaxPct float64
 	Window time.Duration
+	Every  time.Duration // check interval; 0 = unknown
 	Now    func() time.Time
 
 	mu      sync.Mutex
@@ -232,6 +233,27 @@ type CPU struct {
 type cpuSample struct {
 	t           time.Time
 	busy, total uint64
+}
+
+// firstValue tells when the first number will show up.
+func (c *CPU) firstValue() string {
+	if c.Every <= 0 {
+		return "first value after the next round"
+	}
+	return "first value in " + Dur(c.Every)
+}
+
+// Compact renders 3m0s as 3m and 1h0m0s as 1h.
+func Compact(d time.Duration) string {
+	s := d.Round(time.Second).String()
+	s = strings.TrimSuffix(s, "m0s")
+	if s != d.Round(time.Second).String() {
+		s += "m"
+	}
+	if t := strings.TrimSuffix(s, "h0m"); t != s {
+		s = t + "h"
+	}
+	return s
 }
 
 func (c *CPU) ID() string   { return "sys:cpu" }
@@ -284,7 +306,7 @@ func (c *CPU) Run(ctx context.Context) Result {
 		c.samples = c.samples[1:]
 	}
 	if len(c.samples) < 2 {
-		return Result{Status: UNKNOWN, Value: "warming up"}
+		return Result{Status: UNKNOWN, Value: c.firstValue()}
 	}
 	old := c.samples[0]
 	dt := total - old.total
@@ -294,12 +316,12 @@ func (c *CPU) Run(ctx context.Context) Result {
 	p := float64(busy-old.busy) / float64(dt) * 100
 	age := now.Sub(old.t)
 	full := age >= c.Window-c.Window/20
-	label := fmt.Sprintf("%.0f%% (%s avg)", p, age.Round(time.Second))
+	label := fmt.Sprintf("%.0f%% (%s avg)", p, Compact(age))
 	switch {
 	case !full:
-		return Result{Status: UNKNOWN, Value: label + ", window filling"}
+		return Result{Status: UNKNOWN, Value: fmt.Sprintf("%.0f%% (%s of %s avg)", p, Compact(age), Compact(c.Window))}
 	case p > c.MaxPct:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s (max %g%%)", p, c.Window, c.MaxPct), Value: label}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s, limit %g%%", p, Compact(c.Window), c.MaxPct), Value: label}
 	case p >= c.MaxPct-10:
 		return Result{Status: OK, Value: label, Hold: true}
 	}

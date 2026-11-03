@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -90,7 +91,7 @@ func TestDeadmanBadUUIDTellsTelegram(t *testing.T) {
 	a.Cycle(context.Background())
 	var n int
 	for _, s := range f.Texts() {
-		if strings.Contains(s, "dead-man ping rejected") {
+		if strings.Contains(s, "dead-man ping was rejected") {
 			n++
 		}
 	}
@@ -120,5 +121,61 @@ func TestDeadmanStaysSilentWhenNoRoundFinishes(t *testing.T) {
 	a.PingDeadman(ctx)
 	if len(paths) != 2 {
 		t.Fatalf("%v", paths)
+	}
+}
+
+func TestDeadmanFirstPingMessage(t *testing.T) {
+	f, tsrv := testfake.Start(tok)
+	defer tsrv.Close()
+	dm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("OK")) }))
+	defer dm.Close()
+	var buf bytes.Buffer
+	const key = "/secretpath-abcdef123456"
+	a, _ := newApp(t, tsrv.URL, dm.URL+key, &buf)
+	ctx := context.Background()
+	active := func() (n int) {
+		for _, s := range f.Texts() {
+			if strings.HasPrefix(s, "testhost: dead-man switch is active, first ping OK at ") && strings.HasSuffix(s, ". If the pings stop, Healthchecks alarms you.") {
+				n++
+			}
+		}
+		return
+	}
+	a.Cycle(ctx)
+	a.Deliver(ctx)
+	if active() != 1 {
+		t.Fatalf("%q", f.Texts())
+	}
+	for i := 0; i < 3; i++ {
+		fk.Advance(2 * time.Minute)
+		a.Cycle(ctx)
+		a.Deliver(ctx)
+	}
+	if active() != 1 {
+		t.Fatalf("announced again: %q", f.Texts())
+	}
+	a.saveState(true)
+	if b, _ := os.ReadFile(a.Cfg.StateFile); strings.Contains(string(b), "secretpath") || !strings.Contains(string(b), `"url_fp"`) {
+		t.Fatalf("state file: %s", b)
+	}
+	// restart with the same URL and state: silent
+	a2, _ := newApp(t, tsrv.URL, dm.URL+key, &buf)
+	a2.Cfg.StateFile = a.Cfg.StateFile
+	a2.LoadState()
+	fk.Advance(2 * time.Minute)
+	a2.Cycle(ctx)
+	a2.Deliver(ctx)
+	if active() != 1 {
+		t.Fatalf("announced after restart: %q", f.Texts())
+	}
+	// a changed URL is announced once more
+	nc := *a2.Cfg
+	nc.DeadmanURL = dm.URL + "/other-path-xyz987654"
+	a2.apply(&nc)
+	fk.Advance(2 * time.Minute)
+	a2.Cycle(ctx)
+	a2.Deliver(ctx)
+	if active() != 2 {
+		t.Fatalf("changed URL not announced: %q", f.Texts())
 	}
 }

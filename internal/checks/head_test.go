@@ -67,7 +67,7 @@ func TestHTTPNoFallbackOnOtherErrors(t *testing.T) {
 	var ms methods
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { ms.add(r.Method); w.WriteHeader(502) }))
 	defer srv.Close()
-	if r := NewHTTP("a", srv.URL, "", time.Second).Run(context.Background()); r.Status != FAIL || r.Detail != "HTTP 502" {
+	if r := NewHTTP("a", srv.URL, "", time.Second).Run(context.Background()); r.Status != FAIL || r.Detail != "answered with HTTP 502" {
 		t.Fatal(r)
 	}
 	if ms.String() != "HEAD" {

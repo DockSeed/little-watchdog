@@ -30,30 +30,82 @@ type Entry struct {
 	OKs       int           `json:"oks"`
 	DownSince time.Time     `json:"down_since,omitzero"` // start of the failing streak
 	Value     string        `json:"value,omitempty"`
+	Detail    string        `json:"detail,omitempty"` // latest error of the running failure streak
 	LastRun   time.Time     `json:"last_run"`
 	LastMsg   string        `json:"last_msg,omitempty"`
 	LastMsgAt time.Time     `json:"last_msg_at,omitzero"`
-	Pending   []string      `json:"pending,omitempty"` // messages not delivered yet
+	Pending   []string      `json:"pending,omitempty"`    // messages not delivered yet
+	PendingAt []time.Time   `json:"pending_at,omitempty"` // when each pending message happened (same order)
+}
+
+// Telegram is how the daemon's sends went; the TUI shows it. Additive: old readers ignore it.
+type Telegram struct {
+	LastOKAt time.Time `json:"last_ok_at,omitzero"`
+	Err      string    `json:"err,omitempty"`      // short, sanitized; set while sends fail
+	ErrSince time.Time `json:"err_since,omitzero"` // first failure of the current streak
+	ErrAt    time.Time `json:"err_at,omitzero"`    // latest failure (in memory until the next write)
+}
+
+// Updates is how /status polling (getUpdates) goes; only a conflict is recorded.
+type Updates struct {
+	Conflict string    `json:"conflict,omitempty"` // ConflictWebhook, ConflictPoller or ConflictUnknown
+	Since    time.Time `json:"since,omitzero"`
+}
+
+// Kinds of getUpdates conflict (HTTP 409).
+const (
+	ConflictWebhook = "webhook" // a webhook is set for the bot
+	ConflictPoller  = "poller"  // another program polls the bot
+	ConflictUnknown = "unknown" // 409 without a text that tells which
+)
+
+// Footprint is what the daemon itself costs; it rides on every state write.
+type Footprint struct {
+	Started time.Time `json:"started"`
+	At      time.Time `json:"at"`
+	Writes  int       `json:"writes"`           // state file writes since Started, this one included
+	RSSKB   int64     `json:"rss_kb,omitempty"` // resident memory
+	CPUSec  float64   `json:"cpu_s,omitempty"`  // CPU time used since Started
+}
+
+// Deadman is how the dead-man pings went; the URL itself is never stored, only its fingerprint.
+type Deadman struct {
+	URLFP    string    `json:"url_fp,omitempty"`
+	LastOKAt time.Time `json:"last_ok_at,omitzero"`
+	Err      string    `json:"err,omitempty"`
+	ErrSince time.Time `json:"err_since,omitzero"`
 }
 
 type file struct {
-	Version int               `json:"version"`
-	Checks  map[string]*Entry `json:"checks"`
+	Version  int               `json:"version"`
+	Checks   map[string]*Entry `json:"checks"`
+	Telegram *Telegram         `json:"telegram,omitempty"`
+	Deadman  *Deadman          `json:"deadman,omitempty"`
+	Updates  *Updates          `json:"updates,omitempty"`
+	Foot     *Footprint        `json:"footprint,omitempty"`
 }
 
 type Engine struct {
 	mu           sync.Mutex
 	entries      map[string]*Entry
-	dirty        bool // reported state, counters or pending changed since the last write
+	dirty        bool // reported state, pending or meta changed since the last write
+	cdirty       bool // only streak counters changed (written at most every counterEvery)
+	cAt          time.Time
 	savedAt      time.Time
 	writes       int
+	Started      time.Time               // daemon start, for the footprint
+	Proc         func() (int64, float64) // RSS in KB and CPU seconds of this process
 	saveMu       sync.Mutex
 	FailAfter    int
 	RecoverAfter int
+	Host         string // machine name for messages; empty = leave out
+	tg           Telegram
+	dm           Deadman
+	up           Updates
 }
 
 func NewEngine(failAfter, recoverAfter int) *Engine {
-	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter}
+	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter, Started: time.Now(), Proc: ReadProc}
 }
 
 // Load reads the state file and keeps only ids in valid. A missing file is
@@ -78,11 +130,24 @@ func (e *Engine) Load(path string, valid map[string]bool) (warn string) {
 			e.entries[id] = en
 		}
 	}
+	if f.Telegram != nil {
+		e.tg = *f.Telegram
+	}
+	if f.Deadman != nil {
+		e.dm = *f.Deadman
+	}
+	if f.Updates != nil {
+		e.up = *f.Updates
+	}
 	return ""
 }
 
 // refreshEvery bounds how stale Value/LastRun may get on disk.
 const refreshEvery = 10 * time.Minute
+
+// counterEvery is the shortest gap between two writes caused only by streak counters
+// (a flapping check); changes of the reported state and messages are written at once.
+const counterEvery = 5 * time.Minute
 
 // Writes counts state file writes.
 func (e *Engine) Writes() int {
@@ -94,7 +159,7 @@ func (e *Engine) Writes() int {
 // SaveIfDue writes only when something that matters changed or the file is older than refreshEvery.
 func (e *Engine) SaveIfDue(path string, now time.Time) error {
 	e.mu.Lock()
-	due := e.dirty || e.savedAt.IsZero() || now.Sub(e.savedAt) >= refreshEvery
+	due := e.dirty || e.savedAt.IsZero() || now.Sub(e.savedAt) >= refreshEvery || (e.cdirty && now.Sub(e.cAt) >= counterEvery)
 	e.mu.Unlock()
 	if !due {
 		return nil
@@ -110,8 +175,21 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	e.saveMu.Lock()
 	defer e.saveMu.Unlock()
 	e.mu.Lock()
-	b, err := json.Marshal(file{Version: 1, Checks: e.entries})
-	e.dirty = false
+	tg, dm := e.tg, e.dm
+	f := file{Version: 1, Checks: e.entries, Telegram: &tg}
+	if dm.URLFP != "" {
+		f.Deadman = &dm
+	}
+	if e.up != (Updates{}) {
+		up := e.up
+		f.Updates = &up
+	}
+	f.Foot = e.footprint(now)
+	b, err := json.Marshal(f)
+	if e.cdirty {
+		e.cAt = now
+	}
+	e.dirty, e.cdirty = false, false
 	e.mu.Unlock()
 	defer func() { // any failure keeps the state dirty, so the next cycle writes again
 		if rerr != nil {
@@ -161,6 +239,15 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	return nil
 }
 
+// footprint is the daemon's own cost as of now; the caller holds e.mu.
+func (e *Engine) footprint(now time.Time) *Footprint {
+	fp := &Footprint{Started: e.Started, At: now, Writes: e.writes + 1}
+	if e.Proc != nil {
+		fp.RSSKB, fp.CPUSec = e.Proc()
+	}
+	return fp
+}
+
 // Observe feeds one result into the state machine. A changed reported state
 // appends a message to the entry's Pending list and returns it.
 func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg string) {
@@ -172,7 +259,10 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 		e.entries[c.ID()] = en
 		e.dirty = true
 	}
-	// counters (Fails, OKs) are not worth a write each cycle; the refresh saves them
+	// A changed streak counter (starts, grows below the threshold, ends) is written when the
+	// last such write is 5 min old (the first one at once); a steady state or a flapping
+	// check does not write each cycle.
+	fails0, oks0 := en.Fails, en.OKs
 	type sig struct {
 		rep   checks.Status
 		since time.Time
@@ -182,10 +272,12 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	npend := len(en.Pending)
 	name, detail := checks.Sanitize(c.Name()), checks.Sanitize(r.Detail)
 	en.Name, en.Type, en.Value, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), now
-	hm := now.Local().Format("15:04")
 	defer func() {
-		if sigOf() != before || len(en.Pending) != npend || msg != "" {
+		switch {
+		case sigOf() != before || len(en.Pending) != npend || msg != "":
 			e.dirty = true
+		case en.Fails != fails0 || en.OKs != oks0:
+			e.cdirty = true
 		}
 	}()
 
@@ -193,17 +285,25 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	case checks.FAIL:
 		en.OKs = 0
 		if en.Fails == 0 && en.Reported != checks.FAIL {
-			en.DownSince = now
+			en.DownSince = now // first failure of the streak
+		}
+		en.Detail = detail
+		if detail == "" {
+			en.Detail = checks.Sanitize(r.Value)
 		}
 		if en.Fails < e.FailAfter {
 			en.Fails++
 		}
 		if en.Reported != checks.FAIL && en.Fails >= e.FailAfter {
 			en.Reported, en.Since = checks.FAIL, now
-			if r.NoAnswer {
-				msg = fmt.Sprintf("%s ❌ %s: no answer since %s", hm, name, dur(now.Sub(en.DownSince)))
-			} else {
-				msg = fmt.Sprintf("%s ❌ %s: %s", hm, name, detail)
+			since := When(en.DownSince, now)
+			switch {
+			case r.NoAnswer:
+				msg = fmt.Sprintf("❌ %s%s is not answering since %s.", name, checks.On(e.Host), since)
+			case isService(c.Type()):
+				msg = fmt.Sprintf("❌ %s%s is down since %s: %s.", name, checks.On(e.Host), since, detail)
+			default:
+				msg = fmt.Sprintf("❌ %s%s has a problem since %s: %s.", name, checks.On(e.Host), since, detail)
 			}
 		}
 	case checks.OK:
@@ -211,26 +311,123 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 			en.OKs = 0 // inside hysteresis band: neither fail nor recover
 			break
 		}
-		en.Fails = 0
+		en.Fails, en.Detail = 0, ""
+		if en.Reported != checks.FAIL {
+			en.DownSince = time.Time{}
+		}
 		switch en.Reported {
 		case checks.UNKNOWN:
 			en.Reported, en.Since = checks.OK, now
 		case checks.FAIL:
 			en.OKs++
 			if en.OKs >= e.RecoverAfter {
-				msg = fmt.Sprintf("%s ✅ %s: back after %s", hm, name, dur(now.Sub(en.DownSince)))
+				msg = fmt.Sprintf("✅ %s%s is back after %s.", name, checks.On(e.Host), dur(now.Sub(en.DownSince)))
 				en.Reported, en.Since, en.OKs = checks.OK, now, 0
 				en.DownSince = time.Time{}
 			}
 		}
 	}
 	if msg != "" {
+		en.alignAt()
 		en.Pending = append(en.Pending, msg)
+		en.PendingAt = append(en.PendingAt, now)
 		if len(en.Pending) > maxPending {
 			en.Pending = en.Pending[len(en.Pending)-maxPending:]
+			en.PendingAt = en.PendingAt[len(en.PendingAt)-maxPending:]
 		}
 	}
 	return msg
+}
+
+// alignAt pads PendingAt (a file from an older version has none) so it matches Pending.
+func (en *Entry) alignAt() {
+	if n := len(en.Pending) - len(en.PendingAt); n > 0 {
+		en.PendingAt = append(make([]time.Time, n), en.PendingAt...)
+	} else if n < 0 {
+		en.PendingAt = en.PendingAt[-n:]
+	}
+}
+
+// isService: a check of something that is reachable over the network (down), not a host limit (problem).
+func isService(typ string) bool { return typ == "http" || typ == "tcp" || typ == "host" }
+
+// When is t as the clock time of today, with the date when it was another day.
+func When(t, now time.Time) string {
+	t, now = t.Local(), now.Local()
+	if y1, m1, d1 := t.Date(); y1 == now.Year() && m1 == now.Month() && d1 == now.Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("Jan 2 15:04")
+}
+
+// NoteSend records a send outcome. Only a change (first success, ok to error,
+// error to ok) is written at once; the periodic refresh carries last_ok_at.
+func (e *Engine) NoteSend(err error, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err == nil {
+		if e.tg.Err != "" || e.tg.LastOKAt.IsZero() {
+			e.dirty = true
+		}
+		e.tg = Telegram{LastOKAt: now}
+		return
+	}
+	if e.tg.Err == "" {
+		e.tg.ErrSince, e.dirty = now, true
+	}
+	e.tg.Err, e.tg.ErrAt = checks.Sanitize(err.Error()), now
+}
+
+// NoteUpdates records how getUpdates goes: "" = fine, else a Conflict kind. Only a change is written at once.
+func (e *Engine) NoteUpdates(conflict string, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch {
+	case conflict == "" && e.up != (Updates{}):
+		e.up, e.dirty = Updates{}, true
+	case conflict != "" && e.up.Conflict != conflict:
+		e.up, e.dirty = Updates{Conflict: conflict, Since: now}, true
+	}
+}
+
+// NoteDeadman records a dead-man ping outcome for the URL with fingerprint fp ("" = none).
+// first is true when this is the first success for that URL: a new or changed URL,
+// never one that already has a stored success (a restart). Only changes are written at once.
+func (e *Engine) NoteDeadman(fp string, err error, now time.Time) (first bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dm.URLFP != fp {
+		e.dm, e.dirty = Deadman{URLFP: fp}, true
+	}
+	if err == nil {
+		first = e.dm.LastOKAt.IsZero()
+		if first || e.dm.Err != "" {
+			e.dirty = true
+		}
+		e.dm.LastOKAt, e.dm.Err, e.dm.ErrSince = now, "", time.Time{}
+		return first
+	}
+	if e.dm.Err == "" {
+		e.dm.ErrSince, e.dirty = now, true
+	}
+	e.dm.Err = checks.Sanitize(err.Error())
+	return false
+}
+
+// Conflict is the current getUpdates conflict kind, "" if none.
+func (e *Engine) Conflict() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.up.Conflict
+}
+
+// ClearDeadman forgets the dead-man meta (the URL was removed).
+func (e *Engine) ClearDeadman() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dm != (Deadman{}) {
+		e.dm, e.dirty = Deadman{}, true
+	}
 }
 
 // PendingMessages lists undelivered messages in check-id order.
@@ -246,16 +443,20 @@ func (e *Engine) PendingMessages() (ids []string) {
 	return ids
 }
 
-// Queued is one undelivered message and the check it belongs to.
-type Queued struct{ ID, Text string }
+// Queued is one undelivered message, the check it belongs to and when it happened (zero = unknown).
+type Queued struct {
+	ID, Text string
+	At       time.Time
+}
 
 // Queue lists all undelivered messages: by check id, oldest first within a check.
 func (e *Engine) Queue() (q []Queued) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for id, en := range e.entries {
-		for _, m := range en.Pending {
-			q = append(q, Queued{id, m})
+		en.alignAt()
+		for i, m := range en.Pending {
+			q = append(q, Queued{id, m, en.PendingAt[i]})
 		}
 	}
 	sort.SliceStable(q, func(i, j int) bool { return q[i].ID < q[j].ID })
@@ -281,9 +482,11 @@ func (e *Engine) pop(id, text string) (*Entry, bool) {
 	if en == nil {
 		return nil, false
 	}
+	en.alignAt()
 	for i, m := range en.Pending {
 		if m == text {
 			en.Pending = append(en.Pending[:i:i], en.Pending[i+1:]...)
+			en.PendingAt = append(en.PendingAt[:i:i], en.PendingAt[i+1:]...)
 			e.dirty = true
 			return en, true
 		}
@@ -330,24 +533,57 @@ func sortEntries(s []Entry) {
 
 // ReadFile loads a state file for the status command (no filtering).
 func ReadFile(path string) ([]Entry, error) {
+	st, err := ReadAll(path)
+	return st.Entries, err
+}
+
+// Snap is a state file as read: the checks and the Telegram and dead-man meta (nil if never written).
+type Snap struct {
+	Entries  []Entry
+	Telegram *Telegram
+	Deadman  *Deadman
+	Updates  *Updates
+	Foot     *Footprint
+}
+
+// ReadAll is ReadFile plus the meta.
+func ReadAll(path string) (st Snap, err error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return st, err
 	}
 	var f file
 	if err := json.Unmarshal(b, &f); err != nil {
-		return nil, fmt.Errorf("state file corrupt: %w", err)
+		return st, fmt.Errorf("state file corrupt: %w", err)
 	}
-	var out []Entry
+	if f.Telegram != nil {
+		t := *f.Telegram
+		t.Err = checks.Sanitize(t.Err)
+		st.Telegram = &t
+	}
+	if f.Deadman != nil {
+		d := *f.Deadman
+		d.Err, d.URLFP = checks.Sanitize(d.Err), checks.Sanitize(d.URLFP)
+		st.Deadman = &d
+	}
+	if f.Updates != nil {
+		u := *f.Updates
+		u.Conflict = checks.Clean(u.Conflict)
+		st.Updates = &u
+	}
+	st.Foot = f.Foot
+	out := []Entry(nil)
 	for _, en := range f.Checks {
 		if en != nil {
 			c := *en
 			c.Name, c.Value = checks.Sanitize(c.Name), checks.Sanitize(c.Value)
+			c.Detail, c.LastMsg = checks.Sanitize(c.Detail), checks.Sanitize(c.LastMsg)
 			out = append(out, c)
 		}
 	}
 	sortEntries(out)
-	return out, nil
+	st.Entries = out
+	return st, nil
 }
 
 func dur(d time.Duration) string {
@@ -383,27 +619,95 @@ func Table(es []Entry, now time.Time) string {
 	return sb.String()
 }
 
-// Brief renders entries for the Telegram /status reply.
-func Brief(es []Entry, now time.Time) string {
-	var sb strings.Builder
-	for _, en := range es {
-		mark := "✅"
-		switch en.Reported {
-		case checks.FAIL:
-			mark = "❌"
-		case checks.UNKNOWN:
-			mark = "❔"
+// Section lists for /status and the TUI: this machine first, then the services.
+var (
+	MachineTypes = []string{"cpu", "mem", "disk", "temp"}
+	ServiceTypes = []string{"http", "tcp", "host"}
+)
+
+// Headings of the two groups, in /status and in the TUI.
+const (
+	MachineHead = "This machine"
+	ServiceHead = "Services"
+)
+
+// Rank is the position of t in list; len(list) if it is not there.
+func Rank(list []string, t string) int {
+	for i, x := range list {
+		if x == t {
+			return i
 		}
-		fmt.Fprintf(&sb, "%s %s: %s", mark, checks.Sanitize(en.Name), checks.Clean(string(en.Reported)))
-		if en.Value != "" {
-			fmt.Fprintf(&sb, " (%s)", checks.Sanitize(en.Value))
-		}
-		sb.WriteString("\n")
 	}
-	if sb.Len() == 0 {
-		return "no checks"
+	return len(list)
+}
+
+// Brief renders entries for the Telegram /status reply: a summary line, then the
+// machine's own checks and the services under a heading each.
+func Brief(host string, es []Entry, now time.Time) string {
+	if len(es) == 0 {
+		return checks.Msg(host, "no checks are set up.")
+	}
+	var sb strings.Builder
+	failing := 0
+	for _, en := range es {
+		if en.Reported == checks.FAIL {
+			failing++
+		}
+	}
+	switch {
+	case failing == 0:
+		sb.WriteString(checks.Msg(host, checks.Count(len(es))+", none failing.") + "\n")
+	default:
+		sb.WriteString(checks.Msg(host, fmt.Sprintf("%d of %s failing.", failing, checks.Count(len(es)))) + "\n")
+	}
+	var mach, svc []Entry
+	for _, en := range es {
+		if Rank(MachineTypes, en.Type) < len(MachineTypes) {
+			mach = append(mach, en)
+		} else {
+			svc = append(svc, en)
+		}
+	}
+	sort.SliceStable(mach, func(i, j int) bool { return Rank(MachineTypes, mach[i].Type) < Rank(MachineTypes, mach[j].Type) })
+	sort.SliceStable(svc, func(i, j int) bool { return Rank(ServiceTypes, svc[i].Type) < Rank(ServiceTypes, svc[j].Type) })
+	for _, g := range []struct {
+		head string
+		es   []Entry
+	}{{MachineHead, mach}, {ServiceHead, svc}} {
+		if len(g.es) == 0 {
+			continue
+		}
+		sb.WriteString(g.head + "\n")
+		for _, en := range g.es {
+			sb.WriteString(briefLine(en, now) + "\n")
+		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// briefLine is "MARK name: value" with the state added only where it is not plain ok.
+func briefLine(en Entry, now time.Time) string {
+	name, val := checks.Sanitize(en.Name), checks.Sanitize(en.Value)
+	with := func(state string) string { // value first; its own brackets stay single
+		if val == "" {
+			return state
+		}
+		return val + ", " + state
+	}
+	switch en.Reported {
+	case checks.FAIL:
+		state := "failing"
+		if !en.DownSince.IsZero() {
+			state = "down since " + When(en.DownSince, now)
+		}
+		return "❌ " + name + ": " + with(state)
+	case checks.UNKNOWN:
+		return "- " + name + ": " + with("not known yet")
+	}
+	if val == "" {
+		val = "ok"
+	}
+	return "✅ " + name + ": " + val
 }
 
 // Retain forgets every entry whose id is not in valid.

@@ -509,11 +509,9 @@ const pairingMaxAge = 15 * time.Minute
 // MarkPairing creates the marker; release removes it.
 func MarkPairing(path string) (release func(), err error) {
 	p := PairingMarker(path)
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o660)
-	if err != nil {
+	if err := touch(p); err != nil {
 		return func() {}, err
 	}
-	f.Close()
 	return func() { os.Remove(p) }, nil
 }
 
@@ -521,6 +519,53 @@ func MarkPairing(path string) (release func(), err error) {
 func PairingActive(path string, now time.Time) bool {
 	st, err := os.Stat(PairingMarker(path))
 	return err == nil && now.Sub(st.ModTime()) < pairingMaxAge
+}
+
+// LinkedMarker is touched by the setup after its test message went out, so the TUI
+// can show a last message at once (the daemon steps aside meanwhile and cannot).
+func LinkedMarker(path string) string { return path + ".linked" }
+
+// MarkLinked records that a test message was sent just now.
+func MarkLinked(path string) error { return touch(LinkedMarker(path)) }
+
+var chtimes = os.Chtimes // swapped in tests
+
+// touch creates the marker p (group-writable whatever the umask) or sets the time of an
+// existing one to now. It never follows a symlink: the directory may be group-writable.
+// A marker we may not touch (another owner) is removed and created anew; never written to.
+func touch(p string) error {
+	for try := 0; ; try++ {
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o660)
+		if err == nil {
+			defer f.Close()
+			return f.Chmod(0o660)
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		if st, e := os.Lstat(p); e != nil || !st.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", p)
+		}
+		now := time.Now()
+		if chtimes(p, now, now) == nil {
+			return nil
+		}
+		if try > 0 {
+			return err
+		}
+		if e := os.Remove(p); e != nil {
+			return e
+		}
+	}
+}
+
+// LinkedAt is the time of the setup's test message; ok is false if there was none.
+func LinkedAt(path string) (t time.Time, ok bool) {
+	st, err := os.Stat(LinkedMarker(path))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return st.ModTime(), true
 }
 
 // TelegramOnly reads just token and chat id, ignoring every other line; for a notice when the rest is invalid.

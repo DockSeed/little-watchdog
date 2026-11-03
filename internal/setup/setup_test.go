@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
 
@@ -121,7 +122,7 @@ func TestPairHappyPath(t *testing.T) {
 	if !strings.Contains(out, "@fakebot") {
 		t.Fatal(out)
 	}
-	if got := f.Texts(); len(got) != 1 || !strings.Contains(got[0], "test message") {
+	if got := f.Texts(); len(got) != 1 || got[0] != TestText(checks.Host()) {
 		t.Fatal(got)
 	}
 	if strings.Contains(out, tok) {
@@ -244,5 +245,15 @@ func TestPairFailurePaths(t *testing.T) {
 	}
 	if _, _, err := Pair(context.Background(), o); err == nil || !strings.Contains(err.Error(), "test message") {
 		t.Fatalf("test message: %v", err)
+	}
+}
+
+func TestTestTextHostAndFallback(t *testing.T) {
+	want := "little-watchdog on box: this chat is linked. You get a message here when the status of a check changes. /status lists all checks."
+	if got := TestText("box"); got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := TestText(""); !strings.HasPrefix(got, "little-watchdog: this chat is linked.") {
+		t.Fatalf("%q", got)
 	}
 }

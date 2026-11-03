@@ -38,7 +38,8 @@ func TestDecode(t *testing.T) {
 		{"\x03", []Key{{Code: CtrlC}}},
 		{"\t", []Key{{Code: Tab}}},
 		{"aä€", []Key{{Rune, 'a'}, {Rune, 'ä'}, {Rune, '€'}}},
-		{"\x1b[3~x", []Key{{Rune, 'x'}}},
+		{"\x1b[3~x", []Key{{Code: Del}, {Rune, 'x'}}},
+		{"\x1b[H\x1b[F\x1b[1~\x1b[4~\x12", []Key{{Code: Home}, {Code: End}, {Code: Home}, {Code: End}, {Code: CtrlR}}},
 		{"\x1b[1;5Ax", []Key{{Code: Up}, {Rune, 'x'}}},
 		{"\x01\x00", nil},
 	}
@@ -76,7 +77,12 @@ type rig struct {
 }
 
 func start(t *testing.T, a *App) *rig {
-	setGroup(t, "", "alice", nil) // a user who is not in the group, whoever runs the tests
+	return startAs(t, a, "", "alice", nil) // a user who is not in the group, whoever runs the tests
+}
+
+// startAs is start with a fake group set before the first frame (see setGroup).
+func startAs(t *testing.T, a *App, members, user string, groups []int) *rig {
+	setGroup(t, members, user, groups)
 	if a.Getenv == nil {
 		a.Getenv = env("TERM", "xterm-256color", "LANG", "C.UTF-8")
 	}
@@ -244,6 +250,7 @@ func writeState(t *testing.T, es ...ent) string {
 		if !e.msg.IsZero() {
 			j += `,"last_msg_at":"` + e.msg.Format(time.RFC3339) + `"`
 		}
+		j += `,"last_run":"` + now.Add(-3*time.Minute).Format(time.RFC3339) + `"`
 		parts = append(parts, j+"}")
 	}
 	p := filepath.Join(t.TempDir(), "state.json")
@@ -274,14 +281,15 @@ func TestMenu80(t *testing.T) { // main menu
 	r := start(t, &App{Path: fixture(t), Size: sized})
 	r.wait("Dead-man switch")
 	rs := check80(t, r.frame())
-	has(t, rs[0], "little-wd", "6 OK  1 FAIL  sent")
+	has(t, rs[0], "little-wd", "1 FAIL")
 	lacks(t, rs[0], "›")
 	has(t, rs[1], "╭", "Menu", "╮")
-	has(t, rs[2], "Status", "6 OK, 1 FAIL (photos)")
+	has(t, rs[2], "Status", "1 FAIL: photos")
 	has(t, rs[3], "Add check", "Website, port or host")
 	has(t, rs[4], "Remove check", "8 checks")
-	has(t, rs[5], "Telegram", "chat set")
-	has(t, rs[6], "Dead-man switch", "Every 2m")
+	has(t, rs[5], "System checks", "4 on")
+	has(t, rs[6], "Telegram", "linked, nothing sent yet")
+	has(t, rs[7], "Dead-man switch", "every 2m")
 	has(t, rs[19], "╰", "╯")
 	has(t, rs[20], "What every check said at the daemon's last cycle (every 1m)")
 	has(t, rs[22], "↑↓ move", "Enter open", "Q quit", "? help")
@@ -299,14 +307,16 @@ func TestStatus80(t *testing.T) { // status
 	rs := check80(t, f)
 	has(t, rs[0], "little-wd  › Status")
 	has(t, rs[1], "Status")
-	has(t, rs[2], "Services")
-	has(t, rs[3], "[OK]", "nextcloud", "http", "HTTP 200 in 2ms", "29 s")
-	has(t, f, "[FAIL] photos", "This host", "disk /", "temperature")
-	if i := strings.Index(f, "This host"); i < strings.Index(f, "router") {
+	has(t, rs[2], "This machine")
+	has(t, rs[3], "[OK]", "cpu", "5% (20s avg)")
+	has(t, rs[6], "Services")
+	has(t, rs[7], "[OK]", "nextcloud", "http", "HTTP 200 in 2ms", "29 s")
+	has(t, f, "[FAIL] photos", "disk /", "temperature")
+	if i := strings.Index(f, "Services"); i < strings.Index(f, "temperature") || i > strings.Index(f, "router") {
 		t.Fatal("sections out of order")
 	}
-	has(t, rs[20], "nextcloud: OK since")
-	r.send("j")
+	has(t, rs[20], "cpu: OK since")
+	r.send("jjjj")
 	r.wait("photos: failing since")
 	f = r.frame()
 	has(t, f, "3 of 3 tries", "Telegram sent at")
@@ -322,7 +332,7 @@ func TestStatus80(t *testing.T) { // status
 
 func TestDetails80(t *testing.T) { // details dialog
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.send("\rj\r")
+	r.send("\rjjjj\r")
 	r.wait("[ Close ]")
 	f := r.frame()
 	rs := check80(t, f)
@@ -359,13 +369,13 @@ func TestAdd80(t *testing.T) { // add check dialog
 func TestRemoveList80(t *testing.T) { // remove list, both sections
 	r := start(t, &App{Path: fixture(t), Size: sized})
 	r.send("jj\r")
-	r.wait("This host")
+	r.wait("Services")
 	f := r.frame()
 	rs := check80(t, f)
-	has(t, rs[2], "Services")
+	has(t, rs[2], "This machine")
 	has(t, f, "[OK]", "nextcloud", "http://192.0.2.12:80/", "router", "198.51.100.20:443",
 		"cpu", "alarm above 90% (15m average)", "memory", "alarm below 5% available", "disk /", "alarm below 10% free", "temperature", "alarm above 85 C")
-	if strings.Index(f, "This host") < strings.Index(f, "router") {
+	if strings.Index(f, "Services") < strings.Index(f, "temperature") || strings.Index(f, "Services") > strings.Index(f, "router") {
 		t.Fatal("sections out of order")
 	}
 	r.send("\x03")
@@ -376,8 +386,8 @@ func TestRemoveConfirm80(t *testing.T) { // remove confirmation
 	p := fixture(t)
 	r := start(t, &App{Path: p, Size: sized})
 	r.send("jj\r")
-	r.wait("This host")
-	r.send("j\r")
+	r.wait("Services")
+	r.send("jjjjj\r") // cpu, memory, disk, temperature, nextcloud, photos
 	r.wait("Remove photos?")
 	f := r.frame()
 	rs := check80(t, f)
@@ -398,12 +408,13 @@ func TestRemoveConfirm80(t *testing.T) { // remove confirmation
 }
 
 // removeHost opens Remove check, moves down n rows (section headers are skipped) and confirms.
+// The machine's own checks come first: cpu 0, memory 1, disk 2, temperature 3.
 func removeHost(t *testing.T, cfg string, n int, want string) (string, *rig) {
 	t.Helper()
 	p := newCfg(t, cfg)
 	r := start(t, &App{Path: p, Size: sized})
 	r.send("jj\r")
-	r.wait("This host")
+	r.wait("This machine")
 	r.send(strings.Repeat("j", n) + "\r")
 	r.wait("Remove " + want + "?")
 	return p, r
@@ -415,10 +426,10 @@ func TestRemoveHostChecks(t *testing.T) {
 		n                int
 		name, back, line string
 	}{
-		{1, "cpu", "CPU_MAX_PCT=90", "CPU_MAX_PCT=0\n"},
-		{2, "memory", "MEM_MIN_AVAIL_PCT=5", "MEM_MIN_AVAIL_PCT=0\n"},
-		{3, "disk /", "DISK_PATHS=/", "DISK_PATHS=\n"},
-		{4, "temperature", "TEMP_MAX_C=85", "TEMP_MAX_C=0\n"},
+		{0, "cpu", "CPU_MAX_PCT=90", "CPU_MAX_PCT=0\n"},
+		{1, "memory", "MEM_MIN_AVAIL_PCT=5", "MEM_MIN_AVAIL_PCT=0\n"},
+		{2, "disk /", "DISK_PATHS=/", "DISK_PATHS=\n"},
+		{3, "temperature", "TEMP_MAX_C=85", "TEMP_MAX_C=0\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, r := removeHost(t, base, c.n, c.name)
@@ -436,7 +447,7 @@ func TestRemoveHostChecks(t *testing.T) {
 
 func TestRemoveDiskPathFromList(t *testing.T) {
 	base := "TCP_B=h:1\nDISK_PATHS=/,/data,/home\n"
-	p, r := removeHost(t, base, 4, "disk /data") // cpu, memory, disk /, disk /data
+	p, r := removeHost(t, base, 3, "disk /data") // cpu, memory, disk /, disk /data
 	has(t, r.frame(), "DISK_PATHS=/,/data,/home")
 	r.send("\r")
 	r.wait("Saved")
@@ -447,15 +458,15 @@ func TestRemoveDiskPathFromList(t *testing.T) {
 	r.wait("Menu")
 	r.send("\r") // the menu cursor is still on Remove check
 	r.wait("disk /home")
-	r.send("jjjj\r")
+	r.send("jjj\r")
 	r.wait("Remove disk /home?")
 	r.send("\r")
 	r.wait("Saved")
 	r.send("x")
 	r.wait("Menu")
 	r.send("\r")
-	r.wait("This host")
-	r.send("jjj\r")
+	r.wait("This machine")
+	r.send("jj\r")
 	r.wait("Remove disk /?")
 	r.send("\r")
 	r.wait("Saved")
@@ -480,7 +491,7 @@ func TestTelegram80(t *testing.T) { // Telegram setup
 	fr := r.frame()
 	rs := check80(t, fr)
 	has(t, rs[0], "little-wd  › Telegram setup")
-	has(t, fr, "[✓] 1  Bot token", "accepted, bot @", "[✓] 2  Webhook", "none set", "[ ] 3  Link your chat", "[ ] 4  Test message", "left", "[ Cancel ]")
+	has(t, fr, "[✓] 1  Bot token", "accepted, bot @", "[✓] 2  Webhook", "none set", "[ ] 3  Link your chat", "[ ] 4  Test message", "waiting until ", "[ Cancel ]")
 	has(t, rs[22], "Esc cancel")
 	lacks(t, r.out.String(), tok)
 	_, rest, _ := strings.Cut(fr, "/start ")
@@ -516,10 +527,15 @@ func TestExplore80(t *testing.T) { // explore mode
 	r.wait("Dead-man switch")
 	rs := check80(t, r.frame())
 	has(t, rs[0], "explore mode, no changes")
-	has(t, rs[3], "Add check", "unknown")
+	has(t, rs[3], "Add check", "locked, see the hint below")
+	// the way out shows at once, with the cursor still on Status
+	r.wait("Needs group little-wd: sudo usermod -aG little-wd alice,")
 	r.send("j")
 	r.wait("Needs group little-wd: sudo usermod -aG little-wd alice,")
 	// locked items are grey, Status is not
+	for i := 0; i < 200 && !strings.Contains(r.raw(), "48;5;240"); i++ { // the redraw after j
+		time.Sleep(10 * time.Millisecond)
+	}
 	has(t, r.raw(), "48;5;240", "1;38;5;231;48;5;234m")
 	r.send("\x03")
 	r.finish()
@@ -571,7 +587,7 @@ func TestASCIIFallback(t *testing.T) {
 			r.wait("Services")
 			has(t, r.frame(), "little-wd  > Status", "[OK]")
 			r.send("\x1b")
-			r.send("jjj\r")
+			r.send("jjjj\r")
 			r.wait("Bot token")
 			r.send("\x1b")
 			r.send("q")
@@ -630,16 +646,16 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	r.send("j\r")
 	r.wait("Check and save")
 	r.send("n\r" + long)
-	r.wait("end_")
+	r.wait("end ")
 	f := r.frame()
 	rs := check80(t, f)
 	for _, row := range rs {
-		if strings.Contains(row, "end_") {
-			if !strings.Contains(row, "URL       <") || !strings.Contains(row, "end_") {
+		if strings.Contains(row, "end ") {
+			if !strings.Contains(row, "URL       <") {
 				t.Fatalf("no start marker: %q", row)
 			}
-			if !strings.HasSuffix(strings.TrimRight(row, " │"), "_") {
-				t.Fatalf("cursor not at the end: %q", row)
+			if !strings.HasSuffix(strings.TrimRight(row, " │"), "end") && !strings.HasSuffix(strings.TrimRight(row, " │"), "_") {
+				t.Fatalf("caret not at the end: %q", row)
 			}
 		}
 	}
@@ -661,7 +677,7 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	r2.send("j\r")
 	r2.wait("Check and save")
 	r2.send("n\r" + long)
-	r2.wait("end_")
+	r2.wait("end ")
 	has(t, r2.frame(), "URL       <")
 	r2.send("\x03")
 	r2.finish()
@@ -770,7 +786,7 @@ func TestRemoveCheck(t *testing.T) {
 	r := start(t, &App{Path: p})
 	r.send("jj\r") // Remove check
 	r.wait("http://a.example/")
-	r.send("j\r")
+	r.send("jjjjj\r") // cpu, memory, disk, temperature, a, b
 	r.wait("Remove b?")
 	r.send("n")
 	r.send("\r")
@@ -789,9 +805,9 @@ func TestDeadman(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); w.Write([]byte("OK")) }))
 	defer srv.Close()
-	p := newCfg(t, "TELEGRAM_TOKEN=1:a\n")
+	p := aliveCfg(t, "TELEGRAM_TOKEN=1:a\n")
 	r := start(t, &App{Path: p, Size: sized})
-	r.send("jjjj\r")
+	r.send("jjjjj\r")
 	r.wait("[ Save ]")
 	check80(t, r.frame())
 	r.send(srv.URL + "/ping\r")
@@ -799,11 +815,11 @@ func TestDeadman(t *testing.T) {
 	if hits.Load() != 1 || !strings.Contains(r.frame(), "Ping OK") || !strings.Contains(read(t, p), "DEADMAN_URL="+srv.URL+"/ping\n") {
 		t.Fatal(hits.Load(), r.frame())
 	}
-	r.send("x") // back to the menu (cursor stays on Dead-man switch), open it again: empty = off
-	r.wait("Every 2m")
+	r.send("x") // back to the menu (cursor stays on Dead-man switch), open it again: "off" switches it off
+	r.wait("every 2m")
 	r.send("\r")
 	r.wait("[ Save ]")
-	r.send("\r")
+	r.send("off\r")
 	r.wait("Dead-man switch off")
 	if strings.Contains(read(t, p), "DEADMAN") {
 		t.Fatal(read(t, p))
@@ -826,7 +842,7 @@ func TestTelegramFirstRun(t *testing.T) {
 	}
 	r.wait("Delete the webhook now?")
 	r.send("y")
-	r.wait("waiting ...")
+	r.wait("waiting until ")
 	_, rest, _ := strings.Cut(r.frame(), "/start ")
 	f.AddMessage(777, "/start "+rest[:6])
 	r.wait("Saved")

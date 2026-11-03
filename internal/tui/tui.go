@@ -39,6 +39,7 @@ const (
 	scMenu screen = iota
 	scStatus
 	scRemove
+	scSys   // limits of the own-host checks
 	scBlank // empty frame named by flow, behind add / telegram / dead-man dialogs
 )
 
@@ -62,7 +63,7 @@ const (
 	modeExplore       // config missing or not readable
 )
 
-var menuItems = []string{"Status", "Add check", "Remove check", "Telegram", "Dead-man switch", "Quit"}
+var menuItems = []string{"Status", "Add check", "Remove check", "System checks", "Telegram", "Dead-man switch", "Quit"}
 
 func locked(item string, md mode) bool { return md != modeFull && item != "Status" && item != "Quit" }
 
@@ -78,7 +79,10 @@ type form struct {
 	kinds  []kindSpec
 	kind   int
 	vals   []string
-	secret bool
+	pos    []int // caret per field, in runes; atEnd or more means the end
+	secret bool  // input is masked; Ctrl-R shows it
+	reveal bool
+	cur    string // fingerprint of the value in use, shown under the fields
 	note   string
 	idx    int // focus: kind choice (if several), fields, then buttons
 	btns   []string
@@ -105,6 +109,20 @@ func (f *form) at() (class, fi int) {
 	default:
 		return 1, i - f.nf()
 	}
+}
+
+const atEnd = 1 << 30
+
+// caret is the edit position of field i, kept inside the text.
+func (f *form) caret(i int) int { return min(max(f.pos[i], 0), len([]rune(f.vals[i]))) }
+
+// edit changes field i at the caret: del runes before it (back) or after it (fwd), then ins is put there.
+func (f *form) edit(i, back, fwd int, ins string) {
+	r, p := []rune(f.vals[i]), f.caret(i)
+	lo, hi := max(p-back, 0), min(p+fwd, len(r))
+	in := []rune(ins)
+	f.vals[i] = string(r[:lo]) + string(in) + string(r[hi:])
+	f.pos[i] = lo + len(in)
 }
 
 type confirm struct {
@@ -137,6 +155,8 @@ type model struct {
 	cur        int // menu cursor
 	scur       int // status cursor
 	lcur       int // remove list cursor
+	ccur       int // system checks cursor
+	sysNote    string
 	help       bool
 	cached     bool // snap holds a parse of cfgText
 	cfgText    string
@@ -212,15 +232,10 @@ func (a *App) Loop(ctx context.Context, in io.Reader, out io.Writer) (err error)
 	slow := max(a.Tick, 10*time.Millisecond)
 	tick := time.NewTicker(slow)
 	defer tick.Stop()
-	period := slow
 	for {
 		m.render(out)
 		if m.quit {
 			return nil
-		}
-		if want := m.tickEvery(slow); want != period { // the Telegram countdown wants seconds
-			period = want
-			tick.Reset(period)
 		}
 		select {
 		case <-ctx.Done():
@@ -238,13 +253,6 @@ func (a *App) Loop(ctx context.Context, in io.Reader, out io.Writer) (err error)
 			m.last = ""
 		}
 	}
-}
-
-func (m *model) tickEvery(slow time.Duration) time.Duration {
-	if m.dk == dTelegram && m.tg != nil && m.tg.code != "" {
-		return min(slow, time.Second)
-	}
-	return slow
 }
 
 // post runs fn on the UI goroutine.
@@ -334,6 +342,8 @@ func (m *model) key(k Key) {
 		m.statusKey(k)
 	case scRemove:
 		m.listKey(k)
+	case scSys:
+		m.sysKey(k)
 	}
 }
 
@@ -369,6 +379,8 @@ func (m *model) menuKey(k Key) {
 			m.addForm()
 		case "Remove check":
 			m.removeList()
+		case "System checks":
+			m.sysList()
 		case "Telegram":
 			m.telegramForm()
 		case "Dead-man switch":
@@ -437,9 +449,19 @@ func (m *model) confirmKey(k Key) {
 func (m *model) formKey(k Key) {
 	f := m.form
 	class, fi := f.at()
+	was := f.idx
+	defer func() {
+		if f.idx != was {
+			if c, i := f.at(); c == 0 {
+				f.pos[i] = atEnd
+			}
+		}
+	}()
 	switch {
 	case k.Code == Esc:
 		m.dk, m.scr = dNone, scMenu
+	case k.Code == CtrlR && f.secret:
+		f.reveal = !f.reveal
 	case k.Code == Up:
 		f.idx = max(f.idx-1, 0)
 	case k.Code == Down:
@@ -448,6 +470,8 @@ func (m *model) formKey(k Key) {
 		f.idx = (f.idx + 1) % f.n()
 	case k.Code == BackTab:
 		f.idx = (f.idx + f.n() - 1) % f.n()
+	case class == 0 && (k.Code == Left || k.Code == Right || k.Code == Home || k.Code == End):
+		f.pos[fi] = map[Code]int{Left: f.caret(fi) - 1, Right: f.caret(fi) + 1, Home: 0, End: atEnd}[k.Code]
 	case k.Code == Left || k.Code == Right:
 		d := map[bool]int{true: 1, false: -1}[k.Code == Right]
 		switch class {
@@ -457,11 +481,11 @@ func (m *model) formKey(k Key) {
 			f.idx = min(max(f.idx+d, f.radio()+f.nf()), f.n()-1)
 		}
 	case k.Code == Backspace && class == 0:
-		if v := []rune(f.vals[fi]); len(v) > 0 {
-			f.vals[fi] = string(v[:len(v)-1])
-		}
+		f.edit(fi, 1, 0, "")
+	case k.Code == Del && class == 0:
+		f.edit(fi, 0, 1, "")
 	case k.Code == Rune && class == 0:
-		f.vals[fi] += string(k.R)
+		f.edit(fi, 0, 0, string(k.R))
 	case k.Code == Rune && class == -1 && k.R == ' ':
 		f.kind = (f.kind + 1) % len(f.kinds)
 	case k.Code == Enter && class == 1 && fi == len(f.btns)-1:
@@ -474,7 +498,7 @@ func (m *model) formKey(k Key) {
 }
 
 func (m *model) newForm(title string, kinds []kindSpec, btns []string, submit func(*form) string) *form {
-	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, 3)}
+	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, 3), pos: []int{atEnd, atEnd, atEnd}}
 	f.idx = f.radio()
 	m.form, m.dk, m.scr, m.flow = f, dForm, scBlank, title
 	return f
@@ -532,12 +556,8 @@ type checkRow struct {
 	back              string               // config line that turns an own-host check on again
 }
 
-// allChecks lists every check the config enables: services first, then this host.
+// allChecks lists every check the config enables: this machine first, then the services.
 func allChecks(c *config.Config) (rs []checkRow) {
-	for _, s := range c.Checks {
-		key := strings.ToUpper(s.Type) + "_" + strings.ToUpper(s.Name)
-		rs = append(rs, checkRow{name: s.Name, typ: s.Type, target: s.Target, off: func(f *config.File) { f.Remove(key) }})
-	}
 	sw := func(name, typ, target, key string, v float64) {
 		rs = append(rs, checkRow{name: name, typ: typ, target: target, host: true, back: fmt.Sprintf("%s=%g", key, v),
 			off: func(f *config.File) { f.Put(key, "0") }})
@@ -559,6 +579,10 @@ func allChecks(c *config.Config) (rs []checkRow) {
 	if c.TempMaxC > 0 {
 		sw("temperature", "temp", fmt.Sprintf("alarm above %g C", c.TempMaxC), "TEMP_MAX_C", c.TempMaxC)
 	}
+	for _, s := range c.Checks {
+		key := strings.ToUpper(s.Type) + "_" + strings.ToUpper(s.Name)
+		rs = append(rs, checkRow{name: s.Name, typ: s.Type, target: s.Target, off: func(f *config.File) { f.Remove(key) }})
+	}
 	return rs
 }
 
@@ -575,16 +599,25 @@ func (m *model) removeList() {
 func (m *model) telegramForm() {
 	m.newForm("Telegram setup", []kindSpec{{labels: []string{"Bot token"}, hints: []string{"Token from @BotFather (see docs/setup.md). The input is hidden."}}},
 		[]string{"Continue", "Cancel"}, func(f *form) string {
-			v := f.vals
+			tok := strings.TrimSpace(f.vals[0])
+			if tok == "" && m.snap.cfg != nil {
+				tok = m.snap.cfg.Token // empty keeps the current token
+			}
+			if tok == "" {
+				return "Bot token: enter the token"
+			}
 			m.tg = &tgState{}
 			api := m.a.APIURL // set by tests only; the real URL comes from the config file
 			if api == "" && m.snap.cfg != nil {
 				api = m.snap.cfg.APIURL
 			}
-			release, _ := config.MarkPairing(m.file.Path) // the daemon pauses its own polling meanwhile
+			release, perr := config.MarkPairing(m.file.Path) // the daemon pauses its own polling meanwhile
+			if perr != nil {
+				m.logf("Note: could not write %s (%v); the daemon may take the /start code before setup does.", config.PairingMarker(m.file.Path), perr)
+			}
 			o := setup.Options{
 				Out: io.Discard, APIURL: api, PollWindow: m.a.PollWindow,
-				ReadSecret: func(string) (string, error) { return v[0], nil },
+				ReadSecret: func(string) (string, error) { return tok, nil },
 				Step: func(s setup.Step) {
 					m.post(func(m *model) {
 						t := m.tg
@@ -612,8 +645,12 @@ func (m *model) telegramForm() {
 				},
 			}
 			m.dk = dTelegram
+			cfgPath := m.file.Path // read here: the UI goroutine may replace m.file meanwhile
 			m.async(func(ctx context.Context) func(*model) {
 				token, chat, err := setup.Pair(ctx, o)
+				if err == nil {
+					config.MarkLinked(cfgPath) // the test message counts as a sent message
+				}
 				release()
 				return func(m *model) {
 					m.tg = nil
@@ -630,12 +667,21 @@ func (m *model) telegramForm() {
 			return ""
 		})
 	m.form.secret = true
+	if c := m.snap.cfg; c != nil && c.Token != "" {
+		m.form.cur = "current: " + checks.TokenFP(c.Token) + " — leave empty to keep it"
+	}
 }
 
 func (m *model) deadmanForm() {
-	f := m.newForm("Dead-man switch", []kindSpec{{labels: []string{"URL"}, hints: []string{"Healthchecks ping URL (docs/setup.md). Empty = off."}}},
+	f := m.newForm("Dead-man switch", []kindSpec{{labels: []string{"URL"}, hints: []string{"Healthchecks ping URL (docs/setup.md)."}}},
 		[]string{"Save", "Cancel"}, func(f *form) string {
 			url := strings.TrimSpace(f.vals[0])
+			switch {
+			case strings.EqualFold(url, "off"):
+				url = ""
+			case url == "" && m.snap.cfg != nil:
+				url = m.snap.cfg.DeadmanURL // empty keeps the current URL
+			}
 			tmp := m.file.Clone()
 			tmp.Set("DEADMAN_URL", url)
 			if _, err := config.Parse(strings.NewReader(tmp.Text()), false); err != nil {
@@ -653,7 +699,12 @@ func (m *model) deadmanForm() {
 			})
 			return ""
 		})
-	f.note = "Empty = off. Pinged once now, then every DEADMAN_EVERY."
+	f.secret = true
+	f.note = "Pinged once now, then every DEADMAN_EVERY."
+	if c := m.snap.cfg; c != nil && c.DeadmanURL != "" {
+		f.kinds[0].hints[0] = "Healthchecks ping URL (docs/setup.md). Empty keeps the current URL, type off to switch it off."
+		f.cur = "current: " + checks.URLFP(c.DeadmanURL) + " — leave empty to keep it, type off to switch it off"
+	}
 }
 
 func needGroup() string { return config.NeedGroupText() }

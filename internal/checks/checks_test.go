@@ -39,7 +39,7 @@ func TestMemRun(t *testing.T) {
 		t.Fatal(r)
 	}
 	m.MinAvailPct = 6
-	if r := m.Run(context.Background()); r.Status != FAIL || !strings.Contains(r.Detail, "min 6%") {
+	if r := m.Run(context.Background()); r.Status != FAIL || !strings.Contains(r.Detail, "limit 6%") {
 		t.Fatal(r)
 	}
 	m.Path = "testdata/nope"
@@ -76,13 +76,13 @@ func TestCPUWindow(t *testing.T) {
 	c := &CPU{Path: p, MaxPct: 90, Window: 100 * time.Second, Now: func() time.Time { return now }}
 	ctx := context.Background()
 	write(0, 0)
-	if r := c.Run(ctx); r.Value != "warming up" || r.Status != UNKNOWN {
+	if r := c.Run(ctx); r.Value != "first value after the next round" || r.Status != UNKNOWN {
 		t.Fatal(r)
 	}
 	// 100% busy but window not full -> UNKNOWN
 	now = now.Add(50 * time.Second)
 	write(500, 0)
-	if r := c.Run(ctx); r.Status != UNKNOWN || !strings.Contains(r.Value, "filling") {
+	if r := c.Run(ctx); r.Status != UNKNOWN || r.Value != "100% (50s of 1m40s avg)" {
 		t.Fatal(r)
 	}
 	// window full, still saturated -> FAIL
@@ -141,7 +141,7 @@ func TestDisk(t *testing.T) {
 		t.Fatal(r)
 	}
 	d.MinFreePct = 101
-	if r := d.Run(context.Background()); r.Status != FAIL || !strings.Contains(r.Detail, "min 101%") {
+	if r := d.Run(context.Background()); r.Status != FAIL || !strings.Contains(r.Detail, "limit 101%") {
 		t.Fatal(r)
 	}
 	d = &Disk{Path: "/nonexistent-xyz"}
@@ -165,10 +165,10 @@ func TestHTTP(t *testing.T) {
 	}{
 		{"ok", "/ok", "", OK, ""},
 		{"contains", "/ok", "installed", OK, ""},
-		{"missing text", "/ok", "nope", FAIL, "text not found"},
-		{"502", "/bad", "", FAIL, "HTTP 502"},
+		{"missing text", "/ok", "nope", FAIL, "expected text was not found"},
+		{"502", "/bad", "", FAIL, "answered with HTTP 502"},
 		{"redirect ok", "/redir", "", OK, ""},
-		{"timeout", "/slow", "", FAIL, "timeout"},
+		{"timeout", "/slow", "", FAIL, "no answer within 200ms"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,19 +60,33 @@ func (a *App) reload() {
 		a.sig = sig
 		if !a.bad {
 			a.bad = true
-			a.notify(invalidText(err))
+			a.notify(a.invalidText(err))
 		}
 		return
 	}
 	a.sig, a.badReads = sig, 0
 	if a.bad {
 		a.bad = false
-		a.notify("config OK again")
+		a.notify(checks.Msg(a.Host, "the config file is fine again and is in use."))
 	}
 	a.apply(nc)
 }
 
-func invalidText(err error) string { return "config invalid, keeping previous: " + err.Error() }
+func (a *App) invalidText(err error) string {
+	return "❌ " + checks.Msg(a.Host, "the config file has a problem, so the previous one stays in use: "+sentence(err)) + "\n" + FixHint(a.Path, false)
+}
+
+// sentence is err as text that ends in one full stop.
+func sentence(err error) string { return strings.TrimRight(err.Error(), ".") + "." }
+
+// FixHint tells where a config problem is fixed; start says the daemon waits for it.
+func FixHint(path string, start bool) string {
+	t := "Fix it in little-wd or in " + checks.Sanitize(path) + `. "little-wd check" tests the file.`
+	if start {
+		t += " It starts by itself once the config is fixed."
+	}
+	return t
+}
 
 // apply swaps in nc: unchanged checks and their state stay, a new token or URL gets a new client.
 func (a *App) apply(nc *config.Config) {
@@ -94,6 +109,9 @@ func (a *App) apply(nc *config.Config) {
 		defer tg.Close()
 		tg = telegram.New(nc.APIURL, nc.Token, sendTimeout)
 		tg.Clk = a.Clk
+	}
+	if nc.DeadmanURL == "" {
+		a.Eng.ClearDeadman()
 	}
 	if nc.DeadmanURL != old.DeadmanURL || nc.DeadmanEvery != old.DeadmanEvery {
 		defer dm.Close()
@@ -134,11 +152,17 @@ func spec(cfg *config.Config, c checks.Check) config.CheckSpec {
 	return config.CheckSpec{}
 }
 
-// notify queues an own notice for Telegram, stamped with the local time.
+// note is an own notice and the time of its event.
+type note struct {
+	text string
+	at   time.Time
+}
+
+// notify queues an own notice for Telegram.
 func (a *App) notify(text string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.notes = append(a.notes, a.Now().Format("15:04")+" "+text)
+	a.notes = append(a.notes, note{text, a.Now()})
 	if len(a.notes) > 20 {
 		a.notes = a.notes[len(a.notes)-20:]
 	}
@@ -151,9 +175,9 @@ func (a *App) flushNotes(ctx context.Context) {
 	a.notes = nil
 	a.mu.Unlock()
 	for i, t := range n {
-		err := a.send(ctx, t)
+		err := a.send(ctx, a.late(t.text, t.at))
 		if err != nil && (!telegram.Permanent(err) || telegram.BadSetup(err)) {
-			a.Log.Printf("warning: telegram send failed: %v", err)
+			a.logSendFail(ctx, err)
 			a.mu.Lock()
 			a.notes = append(n[i:], a.notes...)
 			a.mu.Unlock()
@@ -189,7 +213,7 @@ func WaitConfig(ctx context.Context, path, stateFile string, l *log.Logger, poll
 		if !told {
 			told = true
 			if tok, chat, api := config.TelegramOnly(path); tok != "" && chat != 0 && tell != nil {
-				tell(tok, chat, api, "little-watchdog cannot start: "+err.Error()+" (waiting for a fixed config)")
+				tell(tok, chat, api, "❌ "+checks.Msg(checks.Host(), "little-watchdog cannot start: "+sentence(err))+"\n"+FixHint(path, true))
 			}
 		}
 		select {

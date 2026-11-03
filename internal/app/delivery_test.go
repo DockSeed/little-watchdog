@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/DockSeed/little-watchdog/internal/checks"
+	"github.com/DockSeed/little-watchdog/internal/state"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
 )
 
@@ -29,7 +30,7 @@ func TestPermanentlyRejectedMessageDoesNotBlockOthers(t *testing.T) {
 		a.Cycle(ctx)
 	}
 	got := strings.Join(f.Texts(), "\n")
-	if !strings.Contains(got, "zz: fine") || strings.Contains(got, "BADTEXT") {
+	if !strings.Contains(got, "zz on testhost is down since ") || !strings.Contains(got, ": fine.") || strings.Contains(got, "BADTEXT") {
 		t.Fatalf("%q", got)
 	}
 	if n := strings.Count(buf.String(), "dropped"); n != 1 {
@@ -40,7 +41,7 @@ func TestPermanentlyRejectedMessageDoesNotBlockOthers(t *testing.T) {
 	}
 }
 
-func TestMessagesOfOneCycleAreBundledWithTime(t *testing.T) {
+func TestMessagesOfOneCycleAreBundledWithoutClockPrefix(t *testing.T) {
 	f, srv := testfake.Start(tok)
 	defer srv.Close()
 	var buf bytes.Buffer
@@ -59,8 +60,8 @@ func TestMessagesOfOneCycleAreBundledWithTime(t *testing.T) {
 		t.Fatalf("%q", got[0])
 	}
 	for _, l := range lines {
-		if !regexp.MustCompile(`^\d\d:\d\d [❌✅] `).MatchString(l) {
-			t.Fatalf("no time prefix: %q", l)
+		if !regexp.MustCompile(`^❌ \S+ on testhost is down since \d\d:\d\d: \w+\.$`).MatchString(l) {
+			t.Fatalf("unexpected line: %q", l)
 		}
 	}
 }
@@ -89,7 +90,7 @@ func TestBundleSplitsAt4096(t *testing.T) {
 		if len([]rune(m)) > 4096 {
 			t.Fatalf("message of %d runes", len([]rune(m)))
 		}
-		total += strings.Count(m, "❌")
+		total += strings.Count(m, "is down since")
 	}
 	if total != 30 {
 		t.Fatalf("%d of 30 alarms delivered", total)
@@ -193,5 +194,29 @@ func TestChatWide400KeepsTheAlarm(t *testing.T) { // bot muted, group disabled: 
 	a.Cycle(ctx)
 	if got := f.Texts(); len(got) != 1 || !strings.Contains(got[0], "HTTP 502") {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestStateFileCarriesTelegramOutcome(t *testing.T) {
+	f, srv := testfake.Start(tok)
+	defer srv.Close()
+	var buf bytes.Buffer
+	a, s := newApp(t, srv.URL, "", &buf)
+	ctx := context.Background()
+	f.Set(func(f *testfake.Telegram) { f.FailCode = 403 })
+	s.set(checks.Result{Status: checks.FAIL, Detail: "HTTP 502"})
+	for i := 0; i < 3; i++ {
+		a.Cycle(ctx)
+	}
+	st, err := state.ReadAll(a.Cfg.StateFile)
+	tg := st.Telegram
+	if err != nil || tg == nil || tg.Err == "" || tg.ErrSince.IsZero() || !tg.LastOKAt.IsZero() {
+		t.Fatalf("%+v %v", tg, err)
+	}
+	f.Set(func(f *testfake.Telegram) { f.FailCode = 0 })
+	a.Cycle(ctx)
+	st, _ = state.ReadAll(a.Cfg.StateFile)
+	if tg = st.Telegram; tg == nil || tg.Err != "" || tg.LastOKAt.IsZero() {
+		t.Fatalf("%+v", tg)
 	}
 }

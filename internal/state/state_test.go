@@ -5,6 +5,8 @@ package state
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,19 +38,50 @@ func TestTableAndBriefCleanLoadedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{Table(es, time.Now()), Brief(es, time.Now())} {
+	for _, s := range []string{Table(es, time.Now()), Brief("h", es, time.Now())} {
 		if strings.ContainsAny(s, "\x1b\u009b") {
 			t.Fatalf("%q", s)
 		}
 	}
 }
 
-func TestMessageCarriesLocalTime(t *testing.T) {
+func TestMessageHasNoClockPrefixButKeepsEventTime(t *testing.T) {
 	e := NewEngine(1, 1)
 	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
 	m := e.Observe(fake{"a", "http"}, bad, at)
-	if !strings.HasPrefix(m, "14:07 ❌ ") {
+	if !strings.HasPrefix(m, "❌ a is down since 14:07") {
 		t.Fatalf("%q", m)
+	}
+	if q := e.Queue(); len(q) != 1 || !q[0].At.Equal(at) {
+		t.Fatalf("the queue must carry the event time: %+v", q)
+	}
+}
+
+func TestPendingTimeSurvivesRestartAndOldFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(1, 1)
+	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
+	e.Observe(fake{"a", "http"}, bad, at)
+	if err := e.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	e2 := NewEngine(1, 1)
+	e2.Load(path, map[string]bool{"a": true})
+	if q := e2.Queue(); len(q) != 1 || !q[0].At.Equal(at) {
+		t.Fatalf("%+v", q)
+	}
+	// a file without pending_at (older version) still loads; the time is unknown
+	old := `{"version":1,"checks":{"a":{"name":"a","type":"http","reported":"FAIL","pending":["x","y"]}}}`
+	os.WriteFile(path, []byte(old), 0o600)
+	e3 := NewEngine(1, 1)
+	e3.Load(path, map[string]bool{"a": true})
+	q := e3.Queue()
+	if len(q) != 2 || !q[0].At.IsZero() {
+		t.Fatalf("%+v", q)
+	}
+	e3.Delivered("a", "x", time.Now())
+	if q = e3.Queue(); len(q) != 1 || q[0].Text != "y" {
+		t.Fatalf("%+v", q)
 	}
 }
 
@@ -83,7 +116,7 @@ func feed(e *Engine, c checks.Check, start time.Time, rs ...checks.Result) []str
 	var msgs []string
 	for i, r := range rs {
 		if m := e.Observe(c, r, start.Add(time.Duration(i)*time.Minute)); m != "" {
-			msgs = append(msgs, m[len("15:04 "):]) // see TestMessageCarriesLocalTime
+			msgs = append(msgs, m)
 		}
 	}
 	return msgs
@@ -99,21 +132,26 @@ func TestHysteresis(t *testing.T) {
 	}{
 		{"quiet ok", fake{"a", "http"}, []checks.Result{ok, ok, ok}, nil},
 		{"2 fails not enough", fake{"a", "http"}, []checks.Result{ok, bad, bad, ok}, nil},
-		{"3 fails alarm once", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, bad, bad}, []string{"❌ a: HTTP 502"}},
-		{"recover needs 2", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, bad, ok}, []string{"❌ a: HTTP 502"}},
-		{"recover msg", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, ok}, []string{"❌ a: HTTP 502", "✅ a: back after 4 min"}},
-		{"no answer since", fake{"n", "host"}, []checks.Result{ok, noan, noan, noan}, []string{"❌ n: no answer since 2 min"}},
+		{"3 fails alarm once", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, bad, bad}, []string{"❌ a is down since {1}: HTTP 502."}},
+		{"recover needs 2", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, bad, ok}, []string{"❌ a is down since {1}: HTTP 502."}},
+		{"recover msg", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, ok}, []string{"❌ a is down since {1}: HTTP 502.", "✅ a is back after 4 min."}},
+		{"no answer since", fake{"n", "host"}, []checks.Result{ok, noan, noan, noan}, []string{"❌ n is not answering since {1}."}},
 		{"unknown ignored", fake{"a", "http"}, []checks.Result{ok, unk, unk, unk, bad, unk}, nil},
-		{"hold keeps fail", fake{"t", "temp"}, []checks.Result{ok, bad, bad, bad, hold, ok, hold, ok, ok}, []string{"❌ t: HTTP 502", "✅ t: back after 7 min"}},
+		{"hold keeps fail", fake{"t", "temp"}, []checks.Result{ok, bad, bad, bad, hold, ok, hold, ok, ok}, []string{"❌ t has a problem since {1}: HTTP 502.", "✅ t is back after 7 min."}},
 		{"hold while ok is ok", fake{"t", "temp"}, []checks.Result{ok, hold, hold, bad, hold, bad, bad}, nil},
-		{"first obs fail alarms after 3", fake{"a", "http"}, []checks.Result{bad, bad, bad}, []string{"❌ a: HTTP 502"}},
+		{"first obs fail alarms after 3", fake{"a", "http"}, []checks.Result{bad, bad, bad}, []string{"❌ a is down since {0}: HTTP 502."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := NewEngine(3, 2)
 			got := feed(e, tt.c, t0, tt.in...)
-			if strings.Join(got, "|") != strings.Join(tt.want, "|") {
-				t.Fatalf("got %q want %q", got, tt.want)
+			want := make([]string, len(tt.want))
+			for i, w := range tt.want {
+				w = strings.ReplaceAll(w, "{0}", t0.Local().Format("15:04"))
+				want[i] = strings.ReplaceAll(w, "{1}", t0.Add(time.Minute).Local().Format("15:04"))
+			}
+			if strings.Join(got, "|") != strings.Join(want, "|") {
+				t.Fatalf("got %q want %q", got, want)
 			}
 		})
 	}
@@ -149,7 +187,7 @@ func TestRestartKeepsState(t *testing.T) {
 	// restart while FAIL: no second alarm, recovery reported
 	e3 := NewEngine(3, 2)
 	e3.Load(path, map[string]bool{"a": true})
-	if got := feed(e3, c, t0.Add(20*time.Minute), bad, ok, ok); len(got) != 1 || !strings.HasPrefix(got[0], "✅") {
+	if got := feed(e3, c, t0.Add(20*time.Minute), bad, ok, ok); len(got) != 1 || !strings.HasPrefix(got[0], "✅ a is back after ") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -168,7 +206,7 @@ func TestPendingSurvivesRestart(t *testing.T) {
 		t.Fatal(ids)
 	}
 	m, _ := e2.Peek("a")
-	if !strings.HasSuffix(m, " ❌ a: HTTP 502") {
+	if m != "❌ a is down since "+t0.Add(time.Minute).Local().Format("15:04")+": HTTP 502." {
 		t.Fatal(m)
 	}
 	e2.Delivered("a", m, t0)
@@ -207,7 +245,7 @@ func TestTable(t *testing.T) {
 	if !strings.Contains(out, "NAME") || !strings.Contains(out, "5 min ago") || !strings.Contains(out, "OK") {
 		t.Fatal(out)
 	}
-	if b := Brief(e.Snapshot(), now); !strings.Contains(b, "✅ a: OK (v)") {
+	if b := Brief("h", e.Snapshot(), now); !strings.Contains(b, "Services\n✅ a: v") {
 		t.Fatal(b)
 	}
 }
@@ -240,5 +278,342 @@ func TestDeliveredRemovesTheMessageThatWasSentNotTheFirstOne(t *testing.T) {
 	e.Delivered("a", after[0].Text, t0)
 	if got := e.Queue(); len(got) != len(after)-1 || (len(got) > 0 && got[0].Text == after[0].Text) {
 		t.Fatal("the delivered message is still queued")
+	}
+}
+
+func TestHostInMessagesAndBrief(t *testing.T) {
+	e := NewEngine(1, 1)
+	e.Host = "box"
+	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
+	if m := e.Observe(fake{"a", "http"}, bad, at); m != "❌ a on box is down since 14:07: HTTP 502." {
+		t.Fatal(m)
+	}
+	b := Brief("box", e.Snapshot(), at)
+	if want := "box: 1 of 1 check failing.\nServices\n❌ a: down since 14:07"; b != want {
+		t.Fatalf("%q", b)
+	}
+	if b := Brief("", nil, at); b != "No checks are set up." {
+		t.Fatalf("%q", b)
+	}
+	if m := e.Observe(fake{"a", "http"}, ok, at.Add(5*time.Minute)); m != "✅ a on box is back after 5 min." {
+		t.Fatal(m)
+	}
+}
+
+func TestBriefUnknownCheckAndPrefix(t *testing.T) {
+	es := []Entry{{Name: "a", Reported: checks.UNKNOWN}}
+	now := time.Now()
+	if got, want := Brief("box", es, now), "box: 1 check, none failing.\nServices\n- a: not known yet"; got != want {
+		t.Fatalf("%q", got)
+	}
+	if got, want := Brief("", es, now), "1 check, none failing.\nServices\n- a: not known yet"; got != want {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestNoteSendTransitionsAndFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(1, 1)
+	t0 := time.Unix(1_000_000, 0)
+	e.NoteSend(nil, t0)
+	if !e.dirty {
+		t.Fatal("first success must be written")
+	}
+	e.save(path, t0)
+	e.NoteSend(nil, t0.Add(time.Minute))
+	if e.dirty {
+		t.Fatal("a plain success must not mark dirty")
+	}
+	e.NoteSend(errors.New("dial\x1b[2J failed"), t0.Add(2*time.Minute))
+	e.NoteSend(errors.New("again"), t0.Add(3*time.Minute))
+	if !e.dirty {
+		t.Fatal("ok to error must be written")
+	}
+	e.save(path, t0)
+	st, err := ReadAll(path)
+	tg := st.Telegram
+	if err != nil || len(st.Entries) != 0 || tg == nil {
+		t.Fatal(st, err)
+	}
+	if tg.Err != "again" || !tg.ErrSince.Equal(t0.Add(2*time.Minute)) {
+		t.Fatalf("%+v", tg)
+	}
+	e.NoteSend(nil, t0.Add(4*time.Minute))
+	if !e.dirty {
+		t.Fatal("error to ok must be written")
+	}
+	// survives a restart; an old reader (checks only) still parses the file
+	e.save(path, t0)
+	e2 := NewEngine(1, 1)
+	e2.Load(path, nil)
+	if e2.tg.Err != "" || !e2.tg.LastOKAt.Equal(t0.Add(4*time.Minute)) {
+		t.Fatalf("%+v", e2.tg)
+	}
+	b, _ := os.ReadFile(path)
+	var old struct {
+		Version int
+		Checks  map[string]*Entry
+	}
+	if json.Unmarshal(b, &old) != nil || old.Version != 1 {
+		t.Fatal(string(b))
+	}
+}
+
+func TestNoteDeadmanTransitions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(1, 1)
+	t0 := time.Unix(1_000_000, 0)
+	if !e.NoteDeadman("https://h/…abcd", nil, t0) || !e.dirty {
+		t.Fatal("first success of a new URL must be reported and written")
+	}
+	e.save(path, t0)
+	if e.NoteDeadman("https://h/…abcd", nil, t0.Add(time.Minute)) || e.dirty {
+		t.Fatal("a plain success is neither first nor dirty")
+	}
+	e.NoteDeadman("https://h/…abcd", errors.New("HTTP 500"), t0.Add(2*time.Minute))
+	e.NoteDeadman("https://h/…abcd", errors.New("HTTP 502"), t0.Add(3*time.Minute))
+	if !e.dirty || e.dm.Err != "HTTP 502" || !e.dm.ErrSince.Equal(t0.Add(2*time.Minute)) {
+		t.Fatalf("%+v", e.dm)
+	}
+	e.save(path, t0)
+	e.NoteDeadman("https://h/…abcd", errors.New("HTTP 503"), t0.Add(4*time.Minute))
+	if e.dirty {
+		t.Fatal("a growing failure streak is not a transition")
+	}
+	if e.NoteDeadman("https://h/…abcd", nil, t0.Add(5*time.Minute)) || !e.dirty || e.dm.Err != "" {
+		t.Fatal("error to ok is written but not first")
+	}
+	e.save(path, t0)
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), `"url_fp":"https://h/…abcd"`) {
+		t.Fatal(string(b))
+	}
+	st, err := ReadAll(path)
+	if err != nil || st.Deadman == nil || st.Deadman.LastOKAt.IsZero() {
+		t.Fatal(st, err)
+	}
+	// restart with the same URL: not first; a changed URL: first again
+	e2 := NewEngine(1, 1)
+	e2.Load(path, nil)
+	if e2.NoteDeadman("https://h/…abcd", nil, t0.Add(time.Hour)) {
+		t.Fatal("restart announced again")
+	}
+	if !e2.NoteDeadman("https://h/…ffff", nil, t0.Add(time.Hour)) {
+		t.Fatal("changed URL not announced")
+	}
+	e2.ClearDeadman()
+	e2.save(path, t0)
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), "deadman") {
+		t.Fatal(string(b))
+	}
+}
+
+func TestDownSinceIsTheFirstFailure(t *testing.T) {
+	e := NewEngine(3, 2)
+	e.Host = "homelab"
+	c := fake{"photos", "http"}
+	day := time.Date(2026, 11, 3, 17, 28, 0, 0, time.Local)
+	at := func(m int) time.Time { return day.Add(time.Duration(m) * time.Minute) }
+	e.Observe(c, ok, at(-1))
+	e.Observe(c, bad, at(0))
+	e.Observe(c, bad, at(1))
+	m := e.Observe(c, checks.Result{Status: checks.FAIL, Detail: "no answer within 10 s"}, at(3))
+	if want := "❌ photos on homelab is down since 17:28: no answer within 10 s."; m != want {
+		t.Fatalf("%q", m)
+	}
+	if got := e.Snapshot()[0].Detail; got != "no answer within 10 s" {
+		t.Fatalf("detail %q", got)
+	}
+	e.Observe(c, ok, at(20))
+	if m := e.Observe(c, ok, at(21)); m != "✅ photos on homelab is back after 21 min." {
+		t.Fatalf("%q", m)
+	}
+	if en := e.Snapshot()[0]; en.Detail != "" || !en.DownSince.IsZero() {
+		t.Fatalf("%+v", en)
+	}
+	// another day: the date is named
+	e.Observe(c, bad, day.Add(-30*time.Hour))
+	e.Observe(c, bad, day.Add(-29*time.Hour))
+	m = e.Observe(c, bad, day)
+	if !strings.Contains(m, "is down since Nov 2 ") {
+		t.Fatalf("%q", m)
+	}
+}
+
+func TestStreakEventsMarkDirty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(3, 2)
+	c := fake{"a", "http"}
+	t0 := time.Unix(1_000_000, 0)
+	var n int
+	step := func(i int, r checks.Result) {
+		at := t0.Add(time.Duration(i) * time.Minute)
+		e.Observe(c, r, at)
+		before := e.Writes()
+		if err := e.SaveIfDue(path, at); err != nil {
+			t.Fatal(err)
+		}
+		n += e.Writes() - before
+	}
+	step(0, ok) // new entry
+	n = 0
+	step(1, ok)
+	if n != 0 {
+		t.Fatal("steady OK must not write")
+	}
+	step(2, bad) // series begins: written at once
+	if n != 1 {
+		t.Fatalf("series start must write, writes %d", n)
+	}
+	step(3, bad) // 1 to 2, 1 min later: coalesced
+	if n != 1 {
+		t.Fatalf("a growing streak must not write every round, writes %d", n)
+	}
+	step(8, bad) // alarm: the reported state changes, always at once
+	if n != 2 || len(e.PendingMessages()) != 1 {
+		t.Fatalf("alarm must write, writes %d", n)
+	}
+	step(9, bad)
+	step(10, bad)
+	if n != 2 {
+		t.Fatalf("steady FAIL must not write, writes %d", n)
+	}
+	// the counters the TUI shows reach the file after the next allowed write
+	step(14, ok) // 6 min after the last counter write: goes out
+	if es, _ := ReadFile(path); es[0].OKs != 1 {
+		t.Fatalf("%+v", es)
+	}
+	step(30, ok) // 5+ min after the last write: recovery progress goes out
+	if n < 3 {
+		t.Fatalf("recovery start must write in the end, writes %d", n)
+	}
+}
+
+func TestFlappingCheckWritesFarLessThanOncePerRound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(3, 2) // flaps below both thresholds: never alarms
+	c := fake{"a", "http"}
+	t0 := time.Unix(1_000_000, 0)
+	rounds := 24 * 60 // one day at INTERVAL=60s
+	for i := 0; i < rounds; i++ {
+		r := ok
+		if i%2 == 0 {
+			r = bad
+		}
+		at := t0.Add(time.Duration(i) * time.Minute)
+		e.Observe(c, r, at)
+		if err := e.SaveIfDue(path, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := e.Writes(); w > 24*60/5+2 || w < 24*60/10 {
+		t.Fatalf("a flapping check wrote %d times in %d rounds, want at most one per 5 min", w, rounds)
+	}
+	if len(e.PendingMessages()) != 0 {
+		t.Fatal("intermediate state must not message")
+	}
+}
+
+func TestSteadyStateWritesOnlyTheRefresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(3, 2)
+	c := fake{"a", "http"}
+	t0 := time.Unix(1_000_000, 0)
+	for i := 0; i < 24*60; i++ {
+		at := t0.Add(time.Duration(i) * time.Minute)
+		e.Observe(c, ok, at)
+		e.SaveIfDue(path, at)
+	}
+	if w := e.Writes(); w > 24*6+1 {
+		t.Fatalf("steady state wrote %d times a day, want at most one per 10 min", w)
+	}
+}
+
+func TestStateFileCarriesFootprintAndConflict(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	e := NewEngine(3, 2)
+	t0 := time.Unix(1_000_000, 0)
+	e.Started = t0
+	e.Proc = func() (int64, float64) { return 6144, 12.5 }
+	e.NoteUpdates(ConflictPoller, t0)
+	if err := e.save(path, t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ReadAll(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := st.Foot
+	if f == nil || f.RSSKB != 6144 || f.CPUSec != 12.5 || f.Writes != 1 || f.At.Sub(f.Started) != time.Hour {
+		t.Fatalf("%+v", f)
+	}
+	if st.Updates == nil || st.Updates.Conflict != ConflictPoller {
+		t.Fatalf("%+v", st.Updates)
+	}
+	// the footprint rides along: it never causes a write by itself
+	if err := e.SaveIfDue(path, t0.Add(time.Hour+time.Minute)); err != nil || e.Writes() != 1 {
+		t.Fatalf("writes %d", e.Writes())
+	}
+	// a restart keeps the conflict (no second notice), a fixed bot clears it
+	e2 := NewEngine(3, 2)
+	e2.Load(path, nil)
+	if e2.Conflict() != ConflictPoller {
+		t.Fatal("conflict lost")
+	}
+	e2.NoteUpdates("", t0)
+	if e2.Conflict() != "" || !e2.dirty {
+		t.Fatal("a fixed conflict must be written")
+	}
+}
+
+func TestReadProc(t *testing.T) {
+	dir := t.TempDir()
+	st, stat := filepath.Join(dir, "status"), filepath.Join(dir, "stat")
+	os.WriteFile(st, []byte("Name:\tx\nVmRSS:\t   6144 kB\n"), 0o600)
+	os.WriteFile(stat, []byte("42 (a b) c) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0 20\n"), 0o600)
+	rss, cpu := readProc(st, stat)
+	if rss != 6144 || cpu != 3 {
+		t.Fatalf("rss %d cpu %v", rss, cpu)
+	}
+	if rss, _ := ReadProc(); rss <= 0 {
+		t.Fatal("own RSS must be readable")
+	}
+}
+
+func TestReadAllSanitizesDetailAndLastMsg(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(path, []byte(`{"version":1,"checks":{"a":{"name":"a","type":"http","reported":"FAIL","detail":"x\u001b[2Jy","last_msg":"z\u009bq"}}}`), 0o600)
+	es, err := ReadFile(path)
+	if err != nil || strings.ContainsAny(es[0].Detail+es[0].LastMsg, "\x1b\u009b") {
+		t.Fatalf("%v %+v", err, es)
+	}
+}
+
+func TestBriefGroupsMachineBeforeServices(t *testing.T) {
+	es := []Entry{
+		{Name: "web", Type: "http", Reported: checks.OK, Value: "200 OK"},
+		{Name: "memory", Type: "mem", Reported: checks.OK, Value: "70% available"},
+		{Name: "cpu", Type: "cpu", Reported: checks.OK, Value: "5% (15m avg)"},
+		{Name: "box", Type: "host", Reported: checks.FAIL, DownSince: time.Date(2026, 11, 3, 14, 5, 0, 0, time.Local), Value: "timeout"},
+		{Name: "temperature", Type: "temp", Reported: checks.UNKNOWN},
+	}
+	now := time.Date(2026, 11, 3, 15, 0, 0, 0, time.Local)
+	want := "homelab: 1 of 5 checks failing.\nThis machine\n✅ cpu: 5% (15m avg)\n✅ memory: 70% available\n- temperature: not known yet\nServices\n✅ web: 200 OK\n❌ box: timeout, down since 14:05"
+	if got := Brief("homelab", es, now); got != want {
+		t.Fatalf("\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestBriefServicesFollowServiceTypes(t *testing.T) {
+	es := []Entry{
+		{Name: "n", Type: "host", Reported: checks.OK},
+		{Name: "p", Type: "tcp", Reported: checks.OK},
+		{Name: "w", Type: "http", Reported: checks.OK},
+		{Name: "q", Type: "http", Reported: checks.OK},
+	}
+	got := Brief("h", es, time.Now())
+	i := func(s string) int { return strings.Index(got, "✅ "+s) }
+	if !(i("w") < i("q") && i("q") < i("p") && i("p") < i("n")) {
+		t.Fatalf("order:\n%s", got)
 	}
 }

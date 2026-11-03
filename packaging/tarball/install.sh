@@ -79,13 +79,24 @@ else
 	run systemctl enable --now little-watchdog.service
 fi
 
+# Colour only on a terminal and without NO_COLOR (no-color.org).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+	hd=$(printf '\033[1;32m') cm=$(printf '\033[1;36m') rs=$(printf '\033[0m')
+else
+	hd= cm= rs=
+fi
+
 user=${SUDO_USER:-}
 if [ -n "$user" ] && [ "$user" != root ] && getent passwd "$user" >/dev/null 2>&1; then
 	if ! id -nG "$user" | tr ' ' '\n' | grep -qx little-wd; then
 		run usermod -aG little-wd "$user"
-		echo "Added $user to the group little-wd. Log out and in again, then run: little-wd"
+		printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+		printf '    Added %s to the group little-wd.\n' "$user"
+		printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
 	fi
 else
-	echo "To set it up, add your user to the group, log out and in again, then run little-wd:"
-	echo "  sudo usermod -aG little-wd YOUR_USER"
+	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+	printf '    To set it up, add your user to the group:\n'
+	printf '        %ssudo usermod -aG little-wd YOUR_USER%s\n' "$cm" "$rs"
+	printf '    Then log out and in again and run:  %slittle-wd%s\n\n' "$cm" "$rs"
 fi

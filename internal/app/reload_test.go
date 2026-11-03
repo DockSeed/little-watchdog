@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/config"
 	"github.com/DockSeed/little-watchdog/internal/state"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
@@ -64,6 +65,7 @@ func newRL(t *testing.T, accept string, extra ...string) *rl {
 		t.Fatal(err)
 	}
 	r.a = New(cfg, r.buf)
+	r.a.Host, r.a.Eng.Host = "testhost", "testhost"
 	r.a.Watch(r.path, sig)
 	return r
 }
@@ -79,7 +81,7 @@ func (r *rl) names() []string {
 func (r *rl) invalidMsgs() int {
 	n := 0
 	for _, s := range r.f.Texts() {
-		n += strings.Count(s, "config invalid")
+		n += strings.Count(s, "the config file has a problem")
 	}
 	return n
 }
@@ -125,7 +127,7 @@ func TestReloadInvalidKeepsOldAndNotifiesOnce(t *testing.T) {
 	r.a.Cycle(ctx)
 	r.a.Cycle(ctx)
 	texts := r.f.Texts()
-	if r.invalidMsgs() != 1 || !strings.Contains(strings.Join(texts, "\n"), "config invalid, keeping previous: config line 14: TCP_X") {
+	if r.invalidMsgs() != 1 || !strings.Contains(strings.Join(texts, "\n"), "testhost: the config file has a problem, so the previous one stays in use: config line 14: TCP_X") {
 		t.Fatalf("texts %q", texts)
 	}
 	if strings.Contains(strings.Join(texts, "\n"), "nonsense") || len(r.a.Checks) == 0 || r.a.Checks[0].Name() != "a" {
@@ -154,7 +156,7 @@ func TestReloadTokenChangeNewClient(t *testing.T) {
 	if r.a.TG == old || r.a.Cfg.Token != tok2 {
 		t.Fatal("no new client")
 	}
-	if got := r.f.Texts(); len(got) != 1 || !strings.Contains(got[0], "❌") {
+	if got := r.f.Texts(); len(got) != 1 || !strings.Contains(got[0], "is down since") {
 		t.Fatalf("alarm must go out with the new token: %q", got)
 	}
 	r.a.Log.Printf("leak %s %s", tok, tok2)
@@ -216,8 +218,10 @@ func TestWaitConfigWaitsForAFixAndTellsOnce(t *testing.T) {
 	if err != nil || len(cfg.Checks) != 1 {
 		t.Fatal(cfg, err)
 	}
-	if len(told) != 1 || !strings.HasPrefix(told[0], "1:abc|little-watchdog cannot start: config line 3: TCP_X") {
-		t.Fatalf("%q", told)
+	want := "1:abc|❌ " + checks.Msg(checks.Host(), "little-watchdog cannot start: config line 3: TCP_X: invalid value (expected host:port).") +
+		"\nFix it in little-wd or in " + p + `. "little-wd check" tests the file. It starts by itself once the config is fixed.`
+	if len(told) != 1 || told[0] != want {
+		t.Fatalf("%q\nwant %q", told, want)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

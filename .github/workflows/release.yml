@@ -40,6 +40,10 @@ jobs:
         run: |
           scripts/release-notes.sh "${TAG#v}" > notes.md
           printf '\n---\nThe signature `SHA256SUMS.sig` is added after an independent rebuild. Until it is there, treat this as unverified.\n' >> notes.md
+      - name: Docs name this version
+        run: |
+          grep -q "releases/download/$TAG/" README.md
+          grep -qx "v=${TAG#v}" docs/setup.md
       - name: Checks
         run: |
           test -z "$(gofmt -l .)"

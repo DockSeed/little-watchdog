@@ -2,19 +2,20 @@
 
 ## 1. Install
 
-Download the `.deb` for your device from the
-[releases](https://github.com/DockSeed/little-watchdog/releases), nowhere else:
+Download only from the
+[releases](https://github.com/DockSeed/little-watchdog/releases). The command
+picks the right file for your device (`amd64`, `arm64` or `armhf`):
 
-| Device | File |
-|---|---|
-| Raspberry Pi 3, 4, 5 with 64-bit system, other 64-bit boards | `_arm64.deb` |
-| Raspberry Pi Zero, 1, 2, 3 with 32-bit system | `_armhf.deb` |
-| PC, VM, server | `_amd64.deb` |
+```sh
+v=0.1.0
+base=https://github.com/DockSeed/little-watchdog
+deb=little-watchdog_${v}_$(dpkg --print-architecture).deb
+wget $base/releases/download/v$v/$deb $base/releases/download/v$v/SHA256SUMS \
+  $base/releases/download/v$v/SHA256SUMS.sig $base/raw/v$v/allowed_signers
+```
 
-Not sure? `dpkg --print-architecture` tells you.
-
-Check the download (`allowed_signers` from the repository, compare it with
-https://dockseed.de):
+Check it. Both lines must say OK or Good; compare the key fingerprint with
+https://dockseed.de:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
@@ -24,7 +25,7 @@ ssh-keygen -Y verify -f allowed_signers -I release@little-watchdog -n file -s SH
 Install, then log out and in again:
 
 ```sh
-sudo apt install ./little-watchdog_0.1.0_arm64.deb
+sudo apt install ./$deb
 ```
 
 Other distributions: unpack the `.tar.gz` and run `sudo ./install.sh`.

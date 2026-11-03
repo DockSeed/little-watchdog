@@ -24,12 +24,15 @@ no open port. Linux with systemd. For homelabs, not for critical infrastructure.
 
 ## Install
 
+On Debian, Ubuntu or Raspberry Pi OS:
+
 ```sh
-sudo apt install ./little-watchdog_0.1.0_arm64.deb
+wget https://github.com/DockSeed/little-watchdog/releases/download/v0.1.0/little-watchdog_0.1.0_$(dpkg --print-architecture).deb
+sudo apt install ./little-watchdog_0.1.0_*.deb
 ```
 
-Which file, how to check it, Telegram bot and dead-man's-switch:
-[docs/setup.md](docs/setup.md).
+Then log out and in again and run `little-wd`. How to check the download,
+Telegram bot and dead-man's-switch: [docs/setup.md](docs/setup.md).
 
 ## How it works
 

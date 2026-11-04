@@ -272,3 +272,68 @@ func TestLenientStateFile(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestCheckOptions(t *testing.T) {
+	tests := []struct {
+		name, in, target, contains string
+		warns                      int
+	}{
+		{"v0.4.0 line", `HTTP_A=http://h:2283 name="Immich Fotos" mode=lenient`, "http://h:2283", "", 2},
+		{"contains legacy", "HTTP_A=http://h/x contains=hello world", "http://h/x", "hello world", 0},
+		{"contains takes the rest", "HTTP_A=http://h/x contains=ok mode=lenient", "http://h/x", "ok mode=lenient", 0},
+		{"options before contains", `HTTP_A=http://h/x name="N" contains=a b`, "http://h/x", "a b", 1},
+		{"contains quoted", `HTTP_A=http://h/x contains="a b" mode=lenient`, "http://h/x", "a b", 1},
+		{"quote escape", `HTTP_A=http://h/x contains="say \"hi\" \\o/"`, "http://h/x", `say "hi" \o/`, 0},
+		{"bad quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a" b`, "http://h/x", `"a" b`, 0},
+		{"open quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a b`, "http://h/x", `"a b`, 0},
+		{"tabs", "HTTP_A=http://h/x\tmode=lenient", "http://h/x", "", 1},
+		{"value with =", "HTTP_A=http://h/x opt=a=b", "http://h/x", "", 1},
+		{"tcp options", `TCP_A=192.0.2.5:22 name="SSH box" x=1`, "192.0.2.5:22", "", 2},
+		{"host options", `HOST_A=nas:445 name="NAS"`, "nas:445", "", 1},
+		{"tcp contains unknown", "TCP_A=h:1 contains=x", "h:1", "", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := Parse(strings.NewReader(tt.in+"\n"), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := c.Checks[0]
+			if s.Target != tt.target || s.Contains != tt.contains || len(c.Warnings) != tt.warns {
+				t.Fatalf("got %q %q %q", s.Target, s.Contains, c.Warnings)
+			}
+			for _, w := range c.Warnings {
+				if !strings.Contains(w, "line 1: ") || !strings.Contains(w, "unknown option") {
+					t.Fatalf("warning %q", w)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckOptionErrors(t *testing.T) {
+	for _, in := range []string{
+		"HTTP_A=http://x foo",
+		"HTTP_A=http://x contains=",
+		`HTTP_A=http://x contains=""`,
+		`HTTP_A=http://x contains="a" contains="b"`,
+		"HTTP_A=http://x Name=a",
+		"HTTP_A=http://x =a",
+		`TCP_A=h:1 name="open`,
+		"TCP_A=h:1 junk",
+		`HOST_A=h:1 name="a"b`,
+	} {
+		if _, err := Parse(strings.NewReader(in+"\n"), false); err == nil {
+			t.Errorf("%s: no error", in)
+		}
+	}
+}
+
+func TestQuote(t *testing.T) {
+	for _, v := range []string{"a b", `x"y`, `back\slash`, `"`, "Immich Fotos"} {
+		c, err := Parse(strings.NewReader("HTTP_A=http://h contains="+Quote(v)+" mode=lenient\n"), false)
+		if err != nil || c.Checks[0].Contains != v {
+			t.Errorf("%q: %v %+v", v, err, c)
+		}
+	}
+}

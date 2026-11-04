@@ -250,6 +250,7 @@ func (a *App) saveState(force bool) {
 // the state could be saved) and the time the dead-man switch looks at.
 func (a *App) endCycle() {
 	cfg, _, _, _ := a.cur()
+	a.Eng.FixStart()
 	a.tgMu.Lock()
 	a.lastCycle = a.Clk.Now()
 	a.tgMu.Unlock()
@@ -633,7 +634,7 @@ func (a *App) Poll(ctx context.Context) {
 			}
 			if now := a.Now(); cmd == "/status" && now.Sub(lastStatus) >= statusEvery {
 				lastStatus = now
-				for _, part := range splitLines(state.Brief(a.Host, a.Eng.Snapshot(), a.Eng.RecoverN(), a.Eng.Started, a.Now())) {
+				for _, part := range splitLines(state.Brief(a.Host, a.Eng.Snapshot(), a.Eng.RecoverN(), a.Eng.StartedAt(), a.Now())) {
 					if err := a.sendN(ctx, part, true); err != nil {
 						if ctx.Err() == nil {
 							a.Log.Printf("warning: /status reply failed: %v", err)

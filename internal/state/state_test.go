@@ -754,3 +754,30 @@ func TestBriefWhileRecovering(t *testing.T) {
 		t.Fatalf("no threshold: %q", got)
 	}
 }
+
+func TestFixStart(t *testing.T) {
+	boot := time.Date(2026, 1, 1, 0, 0, 5, 0, time.UTC) // clock before NTP
+	for _, c := range []struct {
+		name       string
+		mono, wall time.Duration
+		want       time.Time
+		ok         bool
+	}{
+		{"no jump", 30 * time.Second, 30 * time.Second, boot, false},
+		{"small drift", 30 * time.Second, 50 * time.Second, boot, false},
+		{"NTP forward", 40 * time.Second, 307*24*time.Hour + 40*time.Second, boot.Add(307 * 24 * time.Hour), true},
+		{"NTP back", 40 * time.Second, -2 * time.Hour, boot.Add(-2*time.Hour - 40*time.Second), true},
+		{"late, maybe a suspend", 2 * time.Hour, 5 * time.Hour, boot, false},
+	} {
+		got, ok := fixStart(boot, c.mono, c.wall)
+		if ok != c.ok || !got.Equal(c.want) {
+			t.Errorf("%s: %v %v", c.name, got, ok)
+		}
+	}
+	e := NewEngine(3, 2)
+	s := e.StartedAt()
+	e.FixStart() // no jump on a running clock
+	if !e.StartedAt().Equal(s) || e.startFixed {
+		t.Fatal("moved without a jump")
+	}
+}

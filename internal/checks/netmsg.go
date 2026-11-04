@@ -34,9 +34,14 @@ func portOf(target string) string {
 	return ""
 }
 
+// fastReject: an EHOSTUNREACH sooner than this is an ICMP reply (a firewall REJECT
+// answers at once); a host that is off fails only after ARP gives up (3 probes, 1 s apart).
+const fastReject = time.Second
+
 // Plain turns a network error into a sentence with the facts. timeout is the wait the
-// check was given and target its URL or host:port. URLs never appear in the text.
-func Plain(err error, timeout time.Duration, target string) string {
+// check was given, target its URL or host:port and took how long the attempt ran.
+// URLs never appear in the text.
+func Plain(err error, timeout time.Duration, target string, took time.Duration) string {
 	var dns *net.DNSError
 	var ua x509.UnknownAuthorityError
 	var hn x509.HostnameError
@@ -55,6 +60,11 @@ func Plain(err error, timeout time.Duration, target string) string {
 			return "connection refused, nothing listens on port " + p
 		}
 		return "connection refused"
+	case errors.Is(err, syscall.EHOSTUNREACH) && took < fastReject:
+		if p := portOf(target); p != "" {
+			return "port " + p + " blocked by a firewall, or no route to the host"
+		}
+		return "blocked by a firewall, or no route to the host"
 	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.EHOSTDOWN):
 		return "host not reachable"
 	case errors.As(err, &cv), errors.As(err, &ua), errors.As(err, &hn), errors.As(err, &ci):

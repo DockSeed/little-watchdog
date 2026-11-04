@@ -341,7 +341,8 @@ func TestDetails80(t *testing.T) { // details dialog
 	f := r.frame()
 	rs := check80(t, f)
 	has(t, f, "photos", "Type", "Target", "http://192.0.2.12:2283/", "FAIL since", "(3 of 3 tries)", "connection refused", "Telegram", "sent at")
-	has(t, rs[3], "╭")
+	has(t, rs[4], "╭") // optical centre: 3 free rows above, 5 below
+	has(t, rs[13], "╰")
 	has(t, r.raw(), "1;38;5;203;48;5;236m")
 	r.send("\r")
 	r.wait("↑↓ move  Enter details")
@@ -1057,5 +1058,62 @@ func TestReadOnlyModeWhenDirNotWritable(t *testing.T) {
 	r.finish()
 	if read(t, p) != "STATE_FILE="+sf+"\nTCP_B=h:1\n" {
 		t.Fatal("config changed")
+	}
+}
+
+// A line written by a newer version keeps its options; a text starting with a quote is saved quoted.
+func TestAddKeepsNewerOptionsAndQuotes(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `{"s":"hello"}`) }))
+	defer web.Close()
+	newer := `HTTP_IMMICH=http://192.0.2.9:2283 name="Immich Fotos" mode=lenient`
+	p := aliveCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n"+newer+"\n")
+	r := start(t, &App{Path: p})
+	r.wait("Add check")
+	r.send("j\r")
+	r.wait("Check and save")
+	r.send("my_web\r" + web.URL + "\r\"hello\"\r")
+	r.wait("Saved")
+	if f := r.frame(); !strings.Contains(f, "OK") {
+		t.Fatal(f)
+	}
+	got := read(t, p)
+	if !strings.Contains(got, "\n"+newer+"\n") || !strings.HasSuffix(got, "HTTP_MY_WEB="+web.URL+` contains="\"hello\""`+"\n") {
+		t.Fatalf("%q", got)
+	}
+	r.send("x")
+	r.wait("Menu")
+	r.send("q")
+	r.finish()
+}
+
+// A check the daemon has no result for yet shows [?], but only when there is any state.
+func TestRemoveListUnknownMark(t *testing.T) {
+	for _, withState := range []bool{true, false} {
+		sf := filepath.Join(t.TempDir(), "none.json")
+		if withState {
+			sf = writeState(t, ent{"tcp", "b", "OK", "open", 0, time.Time{}, time.Time{}})
+		}
+		p := newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\nTCP_NEW=h:2\n")
+		r := start(t, &App{Path: p})
+		r.wait("Add check")
+		r.send("jj\r") // Remove check
+		r.wait("Watches")
+		var b, n string
+		for _, row := range rows(r.frame()) {
+			if strings.Contains(row, " b ") {
+				b = row
+			}
+			if strings.Contains(row, " new ") {
+				n = row
+			}
+		}
+		if withState && (!strings.Contains(b, "[OK]") || !strings.Contains(n, "[?]")) {
+			t.Fatalf("%q\n%q", b, n)
+		}
+		if !withState && (strings.Contains(b, "[") || strings.Contains(n, "[")) {
+			t.Fatalf("%q\n%q", b, n)
+		}
+		r.send("\x03")
+		r.finish()
 	}
 }

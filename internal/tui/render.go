@@ -846,6 +846,14 @@ func (m *model) drawRemove(fr *frame) string {
 				mk, ms = m.markOf(e)
 			}
 		}
+		tgt := it.target
+		if mk == "" && len(m.snap.es) > 0 { // the daemon runs, but has no result for it yet
+			if it.typ == "temp" {
+				tgt += " (not running: no sensor?)"
+			} else {
+				mk, ms = m.markOf(state.Entry{})
+			}
+		}
 		if r.it == m.lcur {
 			ms, ts = sFocus, sFocus
 			fr.row(y, sFocus)
@@ -853,10 +861,6 @@ func (m *model) drawRemove(fr *frame) string {
 		fr.put(y, colMark, mk, ms)
 		fr.put(y, colName, fit(it.name, nw-1), ts)
 		fr.put(y, tx, it.typ, ts)
-		tgt := it.target
-		if it.typ == "temp" && mk == "" && len(m.snap.es) > 0 {
-			tgt += " (not running: no sensor?)"
-		}
 		fr.put(y, tx+7, tgt, ts)
 	}
 	return "Removing an own-host check switches it off in the config."
@@ -897,11 +901,14 @@ func (fr *frame) buttons(names []string, focus int) drow {
 	return r
 }
 
-// dialog draws a box with rows near the top of the frame, width w (cut to the frame).
+// dialogTop is the optical centre: 40 % of the free height above the box, never above row dy.
+func dialogTop(ih, h, dy int) int { return max(dy, (ih-h)*2/5) }
+
+// dialog draws a box with rows in the optical centre of the frame, width w (cut to the frame).
 func (fr *frame) dialog(title string, w int, rows []drow, dy int) {
-	w = min(w, fr.iw-2)
-	x, y := fr.ix+(fr.iw-w)/2, fr.iy+dy
-	fr.cv.box(x, y, w, len(rows)+2, title, fr.th.g, sDbox, sDtitle, sDlg)
+	w, h := min(w, fr.iw-2), len(rows)+2
+	x, y := fr.ix+(fr.iw-w)/2, fr.iy+dialogTop(fr.ih, h, dy)
+	fr.cv.box(x, y, w, h, title, fr.th.g, sDbox, sDtitle, sDlg)
 	for i, r := range rows {
 		n := 0
 		for _, s := range r.segs {

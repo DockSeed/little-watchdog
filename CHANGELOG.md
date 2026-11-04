@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Config
+
+- Check values may carry options after the URL or host:port: `key=value` or
+  `key="value with blanks"`. An unknown option is a warning and is skipped,
+  so a config written by a newer version still starts (0.3.0 refused it with
+  "unexpected text after the URL"). TCP_ and HOST_ take options too.
+- `contains=TEXT` works as before. New: `contains="TEXT"` is read without
+  the quotes, so options may follow it. little-wd saves a text that starts
+  with a quote in that form.
+
+### little-wd
+
+- Remove check: a check without a first result yet shows [?] instead of an
+  empty State column (only while the daemon has written state).
+- Dialogs sit in the optical centre (40 % of the free height above them)
+  instead of at the top. A dialog taller than the screen starts at the top
+  as before.
+
+### Daemon
+
+- On a board without a real-time clock the daemon start ("Started", the
+  footer, "since the daemon start") showed the clock from before NTP set it.
+  The daemon now notices the jump (wall clock against monotonic time, within
+  the first hour) and corrects the start once.
+
+### Checks
+
+- A firewall that rejects a port (firewalld: icmp-host-prohibited) no longer
+  reads "host not reachable": an immediate "no route to host" now says "port
+  80 blocked by a firewall, or no route to the host". A host that is off
+  fails only after ARP gives up (about 3 s) and still reads "host not
+  reachable".
+
 ## [0.3.0] - 2026-11-04
 
 ### little-wd

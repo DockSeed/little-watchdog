@@ -68,7 +68,7 @@ func (h *HTTP) Run(ctx context.Context) Result {
 		if errors.Is(err, errBadRequest) {
 			return Result{Status: FAIL, Detail: "the request could not be built"}
 		}
-		p := Plain(err, h.timeout, h.url)
+		p := Plain(err, h.timeout, h.url, time.Since(start))
 		return Result{Status: FAIL, Detail: p, Value: p}
 	}
 	defer resp.Body.Close()
@@ -157,8 +157,8 @@ func (t *TCP) Run(ctx context.Context) Result {
 		return Result{Status: OK, Value: "refused (alive)"}
 	}
 	if t.host {
-		return Result{Status: FAIL, NoAnswer: true, Value: Plain(err, t.timeout, t.addr)}
+		return Result{Status: FAIL, NoAnswer: true, Value: Plain(err, t.timeout, t.addr, time.Since(start))}
 	}
-	p := Plain(err, t.timeout, t.addr)
+	p := Plain(err, t.timeout, t.addr, time.Since(start))
 	return Result{Status: FAIL, Detail: p, Value: p}
 }

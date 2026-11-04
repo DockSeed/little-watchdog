@@ -100,7 +100,8 @@ type Engine struct {
 	cAt          time.Time
 	savedAt      time.Time
 	writes       int
-	Started      time.Time               // daemon start, for the footprint
+	Started      time.Time // daemon start, for the footprint; read it with StartedAt
+	startFixed   bool
 	Proc         func() (int64, float64) // RSS in KB and CPU seconds of this process
 	saveMu       sync.Mutex
 	FailAfter    int
@@ -250,6 +251,36 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 		d.Close()
 	}
 	return nil
+}
+
+// StartedAt is the daemon start, corrected once the wall clock has jumped.
+func (e *Engine) StartedAt() time.Time {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.Started
+}
+
+// FixStart moves Started once when the wall clock jumped since the start (NTP
+// on a board without a real-time clock). time.Now's monotonic reading does not jump.
+func (e *Engine) FixStart() {
+	now := time.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.startFixed {
+		return
+	}
+	if s, ok := fixStart(e.Started, now.Sub(e.Started), now.Round(0).Sub(e.Started.Round(0))); ok {
+		e.Started, e.startFixed, e.dirty = s, true, true
+	}
+}
+
+// fixStart is started moved by the jump when wall and monotonic elapsed time
+// differ by more than a minute within the first hour (later it may be a suspend).
+func fixStart(started time.Time, mono, wall time.Duration) (time.Time, bool) {
+	if d := wall - mono; mono < time.Hour && (d > time.Minute || d < -time.Minute) {
+		return started.Add(d), true
+	}
+	return started, false
 }
 
 // footprint is the daemon's own cost as of now; the caller holds e.mu.

@@ -48,3 +48,19 @@ func TestStateIsReadOnlyWhenItsFileChanges(t *testing.T) { // a changed file sti
 	r.send("\x03")
 	r.finish()
 }
+
+func TestDialogTopFits(t *testing.T) {
+	for ih := 1; ih <= 60; ih++ {
+		for h := 3; h <= 60; h++ {
+			for dy := 1; dy <= 2; dy++ {
+				top := dialogTop(ih, h, dy)
+				if top < dy || (dy+h <= ih && top+h > ih) {
+					t.Fatalf("ih %d h %d dy %d: top %d", ih, h, dy, top)
+				}
+			}
+		}
+	}
+	if got := dialogTop(18, 10, 1); got != 3 {
+		t.Fatalf("80x24 details: %d", got)
+	}
+}

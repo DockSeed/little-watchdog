@@ -536,8 +536,11 @@ func (m *model) addForm() {
 		typ, v := f.kinds[f.kind].typ, f.vals
 		name := strings.ToUpper(strings.TrimSpace(v[0]))
 		val := strings.TrimSpace(v[1])
-		if typ == "http" && strings.TrimSpace(v[2]) != "" {
-			val += " contains=" + strings.TrimSpace(v[2])
+		if t := strings.TrimSpace(v[2]); typ == "http" && t != "" {
+			if strings.HasPrefix(t, `"`) {
+				t = config.Quote(t) // a bare leading quote would start a quoted value
+			}
+			val += " contains=" + t
 		}
 		key := strings.ToUpper(typ) + "_" + name
 		if !nameRe.MatchString(name) {

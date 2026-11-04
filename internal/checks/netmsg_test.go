@@ -25,17 +25,21 @@ func TestPlainMapsCommonErrors(t *testing.T) {
 		err    error
 		target string
 		want   string
+		took   time.Duration
 	}{
-		{"timeout", context.DeadlineExceeded, "http://nas:8000/", "no answer within 10 s"},
-		{"refused", op(syscall.ECONNREFUSED), "http://nas:8000/x", "connection refused, nothing listens on port 8000"},
-		{"refused default port", op(syscall.ECONNREFUSED), "https://nas/", "connection refused, nothing listens on port 443"},
-		{"refused tcp", op(syscall.ECONNREFUSED), "192.0.2.5:22", "connection refused, nothing listens on port 22"},
-		{"dns", &net.DNSError{Err: "no such host", Name: "nas.lan", IsNotFound: true}, "http://nas.lan/", "name nas.lan not found"},
-		{"no route", op(syscall.EHOSTUNREACH), "192.0.2.5:22", "host not reachable"},
-		{"net unreachable", op(syscall.ENETUNREACH), "192.0.2.5:22", "host not reachable"},
-		{"other", errors.New("boom\x1b[2J"), "x:1", "boom [2J"},
+		{"timeout", context.DeadlineExceeded, "http://nas:8000/", "no answer within 10 s", 0},
+		{"refused", op(syscall.ECONNREFUSED), "http://nas:8000/x", "connection refused, nothing listens on port 8000", 0},
+		{"refused default port", op(syscall.ECONNREFUSED), "https://nas/", "connection refused, nothing listens on port 443", 0},
+		{"refused tcp", op(syscall.ECONNREFUSED), "192.0.2.5:22", "connection refused, nothing listens on port 22", 0},
+		{"dns", &net.DNSError{Err: "no such host", Name: "nas.lan", IsNotFound: true}, "http://nas.lan/", "name nas.lan not found", 0},
+		{"no route after ARP", op(syscall.EHOSTUNREACH), "192.0.2.5:22", "host not reachable", 3 * time.Second},
+		{"firewall reject", op(syscall.EHOSTUNREACH), "http://nas/", "port 80 blocked by a firewall, or no route to the host", 2 * time.Millisecond},
+		{"firewall reject tcp", op(syscall.EHOSTUNREACH), "192.0.2.5:22", "port 22 blocked by a firewall, or no route to the host", 0},
+		{"net unreachable", op(syscall.ENETUNREACH), "192.0.2.5:22", "host not reachable", 0},
+		{"host down", op(syscall.EHOSTDOWN), "192.0.2.5:22", "host not reachable", 0},
+		{"other", errors.New("boom\x1b[2J"), "x:1", "boom [2J", 0},
 	} {
-		if got := Plain(c.err, 10*time.Second, c.target); got != c.want {
+		if got := Plain(c.err, 10*time.Second, c.target, c.took); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}

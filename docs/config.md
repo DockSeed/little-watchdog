@@ -30,6 +30,12 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 `0` (or empty `DISK_PATHS`) switches an own-host check off. `<NAME>` is
 letters, digits and `_`. Example: `contrib/little-watchdog.env.example`.
 
+Options after the URL or `host:port`: `key=value` or `key="value with
+blanks"`, separated by blanks; inside quotes `\"` is a quote and `\\` a
+backslash. Keys are lower case. An unknown key is logged as a warning and
+skipped, so a line written by a newer version still starts. `contains=TEXT`
+without quotes takes the rest of the line, so put it last or quote it.
+
 Where in `little-wd` (it checks the values with the same limits):
 
 - Settings: `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER`, `TIMEOUT`.

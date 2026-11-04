@@ -332,25 +332,46 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 				return nil, bad("check name %q already used by a %s check", name, prev)
 			}
 			spec := CheckSpec{Name: name, Type: typ}
+			target, rest := val, ""
+			if i := strings.IndexAny(val, " \t"); i >= 0 {
+				target, rest = val[:i], val[i:]
+			}
+			restKey := ""
 			if typ == "http" {
-				u, rest, _ := strings.Cut(val, " ")
-				if err = parseURL(u); err != nil {
+				restKey = "contains"
+			}
+			opts, oerr := parseOpts(rest, restKey)
+			if typ == "http" {
+				if err = parseURL(target); err != nil {
 					return nil, bad("%v (expected `url` or `url contains=TEXT`)", err)
 				}
-				spec.Target = u
-				rest = strings.TrimSpace(rest)
-				if rest != "" {
-					t, ok := strings.CutPrefix(rest, "contains=")
+				if oerr != nil {
+					// 0.3.0 took anything after contains= as the text; keep that working.
+					t, ok := strings.CutPrefix(strings.TrimSpace(rest), "contains=")
 					if !ok || t == "" {
-						return nil, bad("unexpected text after the URL (expected `url` or `url contains=TEXT`)")
+						return nil, bad("%v (expected `url` or `url contains=TEXT`)", oerr)
 					}
-					spec.Contains = t
+					opts = []option{{"contains", t}}
 				}
 			} else {
-				if err = hostPort(val); err != nil {
+				if err = hostPort(target); err != nil {
 					return nil, bad("%v", err)
 				}
-				spec.Target = val
+				if oerr != nil {
+					return nil, bad("%v (expected `host:port`)", oerr)
+				}
+			}
+			spec.Target = target
+			for _, o := range opts {
+				switch {
+				case typ == "http" && o.key == "contains":
+					if o.val == "" || spec.Contains != "" {
+						return nil, bad("contains= needs one non-empty text")
+					}
+					spec.Contains = o.val
+				default:
+					c.Warnings = append(c.Warnings, fmt.Sprintf("line %d: %s: unknown option %s ignored", n, key, o.key))
+				}
 			}
 			seen[name] = typ
 			c.Checks = append(c.Checks, spec)
@@ -373,6 +394,61 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 		return nil, &Error{Line: lines["CPU_WINDOW"], Key: "CPU_WINDOW", Msg: "must be at least INTERVAL"}
 	}
 	return c, nil
+}
+
+type option struct{ key, val string }
+
+var optKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// parseOpts reads the options after a check's target: `key=value` or
+// `key="value with blanks"`, separated by blanks. Inside quotes a backslash
+// takes the next character as it is. A bare value of restKey runs to the end
+// of the line (contains=TEXT as in 0.3.0).
+func parseOpts(s, restKey string) ([]option, error) {
+	var out []option
+	for {
+		s = strings.TrimLeft(s, " \t")
+		if s == "" {
+			return out, nil
+		}
+		eq := strings.IndexByte(s, '=')
+		if eq <= 0 || !optKeyRe.MatchString(s[:eq]) {
+			return nil, errors.New("unexpected text after the address (options are key=value)")
+		}
+		k, v := s[:eq], ""
+		s = s[eq+1:]
+		switch {
+		case strings.HasPrefix(s, `"`):
+			var b strings.Builder
+			i := 1
+			for ; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+			if i >= len(s) {
+				return nil, fmt.Errorf("option %s: missing closing quote", k)
+			}
+			v, s = b.String(), s[i+1:]
+			if s != "" && s[0] != ' ' && s[0] != '\t' {
+				return nil, fmt.Errorf("option %s: expected a blank after the closing quote", k)
+			}
+		case k == restKey:
+			v, s = s, ""
+		default:
+			v, s = s, ""
+			if i := strings.IndexAny(v, " \t"); i >= 0 {
+				v, s = v[:i], v[i:]
+			}
+		}
+		out = append(out, option{k, v})
+	}
+}
+
+// Quote writes v as an option value that parseOpts reads back unchanged.
+func Quote(v string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
 }
 
 func tempSensorOK(p string) bool {

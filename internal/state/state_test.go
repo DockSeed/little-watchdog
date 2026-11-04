@@ -725,8 +725,8 @@ func TestBriefWhileRecovering(t *testing.T) {
 	feed(e, nas, t0, refused, good)
 	e.dirty = false
 	e.Observe(nas, refused, t0.Add(2*time.Minute))
-	if got, want := line(e, 2), "❌ <b>nas</b>: connection refused, down since 19:56"; got != want || !e.dirty {
-		t.Fatalf("broken recovery: got %q, want %q, dirty %v", got, want, e.dirty)
+	if got, want := line(e, 2), "❌ <b>nas</b>: connection refused, down since 19:56"; got != want || !e.cdirty {
+		t.Fatalf("broken recovery: got %q, want %q, cdirty %v", got, want, e.cdirty)
 	}
 	// a reload lowers RECOVER_AFTER below the good tries so far
 	e = NewEngine(1, 3)

@@ -106,8 +106,8 @@ func TestEveryUnknownResultIsNoVerdict(t *testing.T) {
 
 func TestClearingNoVerdictIsWrittenAtOnce(t *testing.T) {
 	e := NewEngine(1, 1)
-	e.Proc = nil
 	now := time.Unix(1_000_000, 0)
+	e.Proc, e.Started = nil, now
 	e.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "1%"}, now)
 	p := filepath.Join(t.TempDir(), "s.json")
 	if err := e.Save(p); err != nil {
@@ -125,7 +125,52 @@ func TestClearingNoVerdictIsWrittenAtOnce(t *testing.T) {
 		t.Fatal("a check that stays without verdict caused a write")
 	}
 	e.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "2%"}, now.Add(2*time.Minute))
-	if !e.dirty {
-		t.Fatal("clearing the marker did not mark the state dirty")
+	if e.dirty || !e.cdirty {
+		t.Fatal("a flapping sensor must wait for the periodic write", e.dirty, e.cdirty)
+	}
+	// the first verdict after a start is written at once
+	e2 := NewEngine(1, 1)
+	e2.Proc, e2.Started = nil, now.Add(time.Hour)
+	e2.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "1%"}, now)
+	e2.Observe(fake{"cpu", "cpu"}, warm, now.Add(time.Hour))
+	if err := e2.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	e2.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "2%"}, now.Add(time.Hour+time.Minute))
+	if !e2.dirty {
+		t.Fatal("first verdict after the start not written at once")
+	}
+}
+
+func TestFlappingWritesStayInBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b checks.Result
+	}{
+		{"sensor", checks.Result{Status: checks.UNKNOWN, Value: "read error"}, checks.Result{Status: checks.OK, Value: "40 C"}},
+		{"recovery", checks.Result{Status: checks.FAIL, Detail: "refused"}, checks.Result{Status: checks.OK, Value: "open"}},
+	} {
+		e := NewEngine(1, 2)
+		e.Proc = nil
+		t0 := time.Unix(1_000_000, 0)
+		e.Started = t0
+		e.Observe(fake{"x", "temp"}, checks.Result{Status: checks.FAIL, Detail: "refused"}, t0) // start reported FAIL for the recovery case
+		p := filepath.Join(t.TempDir(), "s.json")
+		for i := 1; i <= 24*60; i++ { // one day at INTERVAL=60s
+			now := t0.Add(time.Duration(i) * time.Minute)
+			r := tc.a
+			if i%2 == 0 {
+				r = tc.b
+			}
+			e.Observe(fake{"x", "temp"}, r, now)
+			if err := e.SaveIfDue(p, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writes := e.Writes()
+		if writes > 300 {
+			t.Fatalf("%s: %d writes a day", tc.name, writes)
+		}
+		t.Logf("%s: %d writes a day", tc.name, writes)
 	}
 }

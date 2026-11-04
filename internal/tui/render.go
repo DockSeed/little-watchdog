@@ -775,7 +775,7 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 			value = e.Detail
 		}
 		if e.Reported == checks.FAIL && e.OKs > 0 && m.snap.cfg != nil {
-			back := fmt.Sprintf("back %d/%d", e.OKs, m.snap.cfg.RecoverAfter)
+			back := backText(e, m.snap.cfg.RecoverAfter)
 			ws := sWarn
 			if r.ent == m.scur {
 				ws = sFocus
@@ -1145,13 +1145,13 @@ func (m *model) drawHelp(fr *frame) {
 		k("Ctrl-R", "show or hide a secret you type"),
 		k("Space", "System checks: turn a check on or off"),
 		k("Esc", "back to the menu, close a window"),
-		k("Q", "quit"),
+		k("Q", "quit in the menu, back elsewhere"),
 	}
 	text := []drow{
 		line("State: [OK] [FAIL], [2/3] = 2 of 3 tries failed, [?] = no", sDlg),
 		line("result yet. back 1/2 = 1 of 2 good tries after a FAIL.", sDlg),
 		line("Checked: time of the last result. Since: when that state", sDlg),
-		line("began, at most since the daemon start.", sDlg),
+		line("began (an OK at most since the daemon start).", sDlg),
 		line("Settings: check interval, alarm and all-clear rounds, timeout.", sDlg),
 		line("Changes apply after you confirm, within one interval.", sDlg),
 	}
@@ -1167,3 +1167,8 @@ func (m *model) drawHelp(fr *frame) {
 }
 
 const sKey2 = sDtitle
+
+// backText is "back 1/2"; capped while the daemon may still run an older RECOVER_AFTER.
+func backText(e state.Entry, ra int) string {
+	return fmt.Sprintf("back %d/%d", min(e.OKs, max(ra-1, 1)), ra)
+}

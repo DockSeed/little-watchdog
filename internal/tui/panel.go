@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -126,7 +127,7 @@ func (m *model) checkBlock(now time.Time, w, n int) (rs []prow) {
 	rs = append(rs, prow{{e.Name, sCat}})
 	rs = append(rs, labRows("Type", lw, []string{e.Type}, sBg)...)
 	if s, ok := m.target(e); ok && s.Target != "" {
-		rs = append(rs, labRows("Target", lw, wrapAll(s.Target, vw, min(n, 2)), sBg)...)
+		rs = append(rs, labRows("Target", lw, wrapAll(shortTarget(s.Target), vw, min(n, 2)), sBg)...)
 	}
 	st := m.sinceText(e, now)
 	if e.Reported == checks.FAIL {
@@ -171,7 +172,7 @@ func (m *model) checkBlock(now time.Time, w, n int) (rs []prow) {
 	rs = append(rs, labRows("Telegram", lw, []string{tg}, sBg)...)
 	if e.Reported == checks.FAIL && e.OKs > 0 {
 		rs = append(rs, prow{{fmt.Sprintf("%-*s", lw, "Recovery"), sRowDim},
-			{fmt.Sprintf("back %d/%d", e.OKs, m.snap.cfg.RecoverAfter), sWarn}, {" good tries after the FAIL", sBg}})
+			{backText(e, m.snap.cfg.RecoverAfter), sWarn}, {" good tries after the FAIL", sBg}})
 	}
 	if e.NoValue {
 		rs = append(rs, labRows("Verdict", lw, wrapAll("none yet (warm-up or read error)", vw, 2), sRowDim)...)
@@ -357,4 +358,21 @@ func upText2(d time.Duration) string {
 		return fmt.Sprintf("%d h %d min", mins/60, mins%60)
 	}
 	return fmt.Sprintf("%d d %d h", mins/(24*60), mins/60%24)
+}
+
+// shortTarget hides a URL's user info and query in the always-visible panel; Enter shows all.
+func shortTarget(t string) string {
+	u, err := url.Parse(t)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User == nil && u.RawQuery == "" {
+		return t
+	}
+	s := u.Scheme + "://"
+	if u.User != nil {
+		s += "***@"
+	}
+	s += u.Host + u.EscapedPath()
+	if u.RawQuery != "" {
+		s += "?..."
+	}
+	return s
 }

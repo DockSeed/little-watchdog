@@ -285,18 +285,17 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	npend := len(en.Pending)
 	name, detail := checks.Sanitize(c.Name()), checks.Sanitize(r.Detail)
 	bname, bdetail := telegram.B(name), telegram.Esc(detail) // messages are Telegram HTML
-	nv0 := en.NoValue
+	nv0, v0 := en.NoValue, en.VerdictAt
 	en.Name, en.Type, en.Value, en.NoValue, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), r.Status == checks.UNKNOWN, now
 	if !en.NoValue {
 		en.VerdictAt = now
 	}
 	defer func() {
 		switch {
-		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue ||
-			en.Reported == checks.FAIL && oks0 > 0 && en.OKs == 0:
-			e.dirty = true // a verdict after none, or a broken recovery, shows at once
+		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue && v0.Before(e.Started):
+			e.dirty = true // also the first verdict after a start, so the screen drops the warm-up text
 		case en.Fails != fails0 || en.OKs != oks0 || en.NoValue != nv0:
-			e.cdirty = true // a flapping sensor must not write every round
+			e.cdirty = true // a flapping check writes at most once per counterEvery
 		}
 	}()
 

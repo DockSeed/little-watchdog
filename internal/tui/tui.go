@@ -749,7 +749,7 @@ func (m *model) settingsForm() {
 	vals := []string{m.raw("INTERVAL", every(c.Interval)), m.raw("FAIL_AFTER", fmt.Sprint(c.FailAfter)),
 		m.raw("RECOVER_AFTER", fmt.Sprint(c.RecoverAfter)), m.raw("TIMEOUT", every(c.Timeout))}
 	spec := kindSpec{labels: []string{"Check every", "Alarm after", "All-clear after", "Timeout per check"}, hints: []string{
-		"How often every check runs, for example 60s or 5m. At least 10s, at most CPU_WINDOW (15m).",
+		"How often every check runs, for example 60s or 5m. At least 10s, at most the cpu window (" + every(c.CPUWindow) + ", System checks).",
 		"Failed rounds in a row, then a Telegram alarm. 3 = three failed rounds in a row.",
 		"Good rounds in a row after an alarm, then the all-clear. 2 = two good rounds in a row.",
 		"A check that takes longer counts as failed, for example 10s. At most 10m.",

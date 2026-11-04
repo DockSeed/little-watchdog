@@ -27,6 +27,8 @@
 - /status shows a failed check that answers again but is not yet back as
   "answering again (1 of 2 good tries), down since 19:56" (RECOVER_AFTER), not
   the old error. `little-wd status` adds "(answering again, 1 of 2 good tries)".
+- The start message lists the checks in /status order: this machine first,
+  then the services.
 
 ### Packaging and docs
 

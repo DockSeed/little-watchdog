@@ -5,12 +5,14 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -480,7 +482,13 @@ func (a *App) deadmanLoop(ctx context.Context) {
 }
 
 // StartText is the message sent when the daemon starts; a long list of names is cut.
+// The names come in /status order: this machine first, then the services.
 func StartText(host string, cs []checks.Check) string {
+	cs = slices.Clone(cs)
+	order := append(slices.Clone(state.MachineTypes), state.ServiceTypes...)
+	slices.SortFunc(cs, func(a, b checks.Check) int { // as Snapshot + Brief: group rank, type, name
+		return cmp.Or(state.Rank(order, a.Type())-state.Rank(order, b.Type()), strings.Compare(a.Type(), b.Type()), strings.Compare(a.Name(), b.Name()))
+	})
 	names := make([]string, len(cs))
 	for i, c := range cs {
 		names[i] = telegram.B(checks.Sanitize(c.Name()))

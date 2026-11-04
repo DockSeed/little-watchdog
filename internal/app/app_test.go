@@ -38,6 +38,14 @@ func (s *scripted) Name() string { return s.id }
 
 func (s *scripted) Type() string { return "http" }
 
+// typedCheck is a scripted check with another type.
+type typedCheck struct {
+	*scripted
+	typ string
+}
+
+func (c typedCheck) Type() string { return c.typ }
+
 func (s *scripted) Run(context.Context) checks.Result { return s.res.Load().(checks.Result) }
 
 func (s *scripted) set(r checks.Result) { s.res.Store(r) }
@@ -229,8 +237,23 @@ func TestStartText(t *testing.T) {
 		}
 		return cs
 	}
-	got := StartText("box", mk("disk /", "memory", "temperature", "cpu"))
-	if want := "<b>box</b>: watching 4 checks (<b>disk /</b>, <b>memory</b>, <b>temperature</b>, <b>cpu</b>). /status shows the details."; got != want {
+	typed := func(pairs ...string) (cs []checks.Check) { // type, name, ...
+		for i := 0; i < len(pairs); i += 2 {
+			cs = append(cs, typedCheck{&scripted{id: pairs[i+1]}, pairs[i]})
+		}
+		return cs
+	}
+	// same order as /status: this machine first, then the services
+	in := typed("http", "zeta", "http", "alpha", "disk", "disk /", "mem", "memory", "temp", "temperature", "cpu", "cpu", "tcp", "ssh")
+	got := StartText("box", in)
+	if want := "<b>box</b>: watching 7 checks (<b>cpu</b>, <b>memory</b>, <b>disk /</b>, <b>temperature</b>, <b>alpha</b> and 2 more). /status shows the details."; got != want {
+		t.Fatalf("%q", got)
+	}
+	if in[0].Name() != "zeta" {
+		t.Fatal("StartText reordered the caller's slice")
+	}
+	got = StartText("box", mk("disk /", "memory", "temperature", "cpu"))
+	if want := "<b>box</b>: watching 4 checks (<b>cpu</b>, <b>disk /</b>, <b>memory</b>, <b>temperature</b>). /status shows the details."; got != want {
 		t.Fatalf("%q", got)
 	}
 	if got := StartText("", mk("disk")); got != "Watching 1 check (<b>disk</b>). /status shows the details." {

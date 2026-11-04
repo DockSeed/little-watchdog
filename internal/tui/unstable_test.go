@@ -37,7 +37,7 @@ func TestStatusListShowsIntermediateStates(t *testing.T) {
 	r.wait("Services")
 	f := r.frame()
 	check80(t, f)
-	has(t, f, "[2/3]  nas", "no answer within 10 s", "[FAIL] photos", "back 1/2", "HTTP 502", "[OK]")
+	has(t, f, "[2/3]   nas", "no answer within 10 s", "[FAIL]  photos", "back 1/2", "HTTP 502", "[OK]")
 	r.send("jj") // the bar moves off the rows to look at
 	r.wait("dns: OK")
 	raw := r.raw()
@@ -65,7 +65,7 @@ func TestUnstableMenuValueAndHeader(t *testing.T) {
 	r := start(t, &App{Path: p, Size: sized, Getenv: env("TERM", "dumb")})
 	r.wait("3 OK, 1 unstable: nas")
 	r.send("\r")
-	r.wait("[1/3]  nas")
+	r.wait("[1/3]   nas")
 	r.send("\x03")
 	r.finish()
 }

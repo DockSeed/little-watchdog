@@ -369,6 +369,9 @@ func When(t, now time.Time) string {
 	if y1, m1, d1 := t.Date(); y1 == now.Year() && m1 == now.Month() && d1 == now.Day() {
 		return t.Format("15:04")
 	}
+	if t.Year() != now.Year() {
+		return t.Format("Jan 2 2006 15:04")
+	}
 	return t.Format("Jan 2 15:04")
 }
 
@@ -611,21 +614,30 @@ func dur(d time.Duration) string {
 	return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
 }
 
-// Ago renders a relative time for tables.
-func Ago(t, now time.Time) string {
-	if t.IsZero() {
-		return "-"
+// ShownSince is when the shown state began: the first failed check of a
+// failing streak, else the last change. An older OK counts from the daemon
+// start (clamped), since nothing was checked while the daemon was down.
+func ShownSince(e Entry, started time.Time) (t time.Time, clamped bool) {
+	if !e.DownSince.IsZero() {
+		return e.DownSince, false
 	}
-	return dur(now.Sub(t)) + " ago"
+	if !started.IsZero() && !e.Since.IsZero() && e.Since.Before(started) {
+		return started, true
+	}
+	return e.Since, false
 }
 
-// Table renders entries as an aligned text table.
-func Table(es []Entry, now time.Time) string {
+// Table renders entries as an aligned text table; started is the daemon start.
+func Table(es []Entry, started, now time.Time) string {
 	var sb strings.Builder
 	tw := tabwriter.NewWriter(&sb, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tTYPE\tSTATE\tSINCE\tVALUE")
 	for _, en := range es {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", checks.Sanitize(en.Name), checks.Clean(en.Type), checks.Clean(string(en.Reported)), Ago(en.Since, now), checks.Sanitize(en.Value))
+		since := "-"
+		if t, _ := ShownSince(en, started); !t.IsZero() {
+			since = When(t, now)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", checks.Sanitize(en.Name), checks.Clean(en.Type), checks.Clean(string(en.Reported)), since, checks.Sanitize(en.Value))
 	}
 	tw.Flush()
 	return sb.String()

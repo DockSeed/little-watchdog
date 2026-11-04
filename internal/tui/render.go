@@ -159,7 +159,7 @@ func (m *model) size() (int, int) {
 // StatusLines renders state entries as table rows cut to width w.
 func StatusLines(es []state.Entry, now time.Time, w int) []string {
 	var out []string
-	for _, l := range strings.Split(strings.TrimRight(state.Table(es, now), "\n"), "\n") {
+	for _, l := range strings.Split(strings.TrimRight(state.Table(es, time.Time{}, now), "\n"), "\n") {
 		out = append(out, fit(l, w))
 	}
 	return out
@@ -206,6 +206,9 @@ func clock(t, now time.Time) string {
 	if y1, m1, d1 := t.Date(); y1 == now.Year() && m1 == now.Month() && d1 == now.Day() {
 		return t.Format("15:04")
 	}
+	if t.Year() != now.Year() {
+		return t.Format("Jan 2 2006 15:04")
+	}
 	return t.Format("Jan 2 15:04")
 }
 
@@ -243,7 +246,7 @@ func (m *model) entryHint(e state.Entry, now time.Time) string {
 	case e.Fails > 0:
 		s = fmt.Sprintf("%s: last check failed, %s, not reported yet.", e.Name, m.tries(e))
 	default:
-		s = fmt.Sprintf("%s: %s since %s.", e.Name, e.Reported, clock(e.Since, now))
+		s = fmt.Sprintf("%s: %s.", e.Name, m.sinceText(e, now))
 	}
 	if e.LastMsgAt.IsZero() {
 		return s + " No Telegram message yet."
@@ -368,7 +371,7 @@ func (m *model) telegramValue(c *config.Config, now time.Time) (string, sty) {
 }
 
 var about = map[string]string{
-	"Status":          "What every check said at the daemon's last cycle (every INTERVAL). The screen updates every 2 s.",
+	"Status":          "Latest result of every check.",
 	"Add check":       "Watch a website, a TCP port or a host. It is checked once before it is saved.",
 	"Remove check":    "Pick a check and remove it from the config.",
 	"System checks":   "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
@@ -542,10 +545,16 @@ func (fr *frame) frameBox(title string) {
 
 // row draws one inner line; the whole width gets style st (the cursor bar when focused).
 func (fr *frame) row(i int, st sty) {
+	if i >= fr.ih {
+		return
+	}
 	fr.cv.fill(fr.ix, fr.iy+i, fr.iw, 1, st)
 }
 
 func (fr *frame) put(i, x int, s string, st sty) int {
+	if i >= fr.ih { // never over the bottom border
+		return fr.ix + x
+	}
 	return fr.cv.text(fr.ix+x, fr.iy+i, fit(s, fr.iw-x), st)
 }
 
@@ -581,7 +590,7 @@ func (m *model) drawMenu(fr *frame) string {
 	if it := menuItems[m.cur]; it == "Status" && m.snap.stale {
 		return daemonDown
 	} else if it == "Status" && m.snap.cfg != nil {
-		return fmt.Sprintf("What every check said at the daemon's last cycle (every %s). The screen updates every 2 s.", every(m.snap.cfg.Interval))
+		return fmt.Sprintf("Latest result of every check. Checks run every %s.", every(m.snap.cfg.Interval))
 	}
 	switch it := menuItems[m.cur]; {
 	case it == "Telegram" && m.snap.up.Conflict != "" && !m.snap.stale:
@@ -637,6 +646,64 @@ func (m *model) markOf(e state.Entry) (string, sty) {
 // unstable: failing, but below FAIL_AFTER, so not reported yet.
 func unstable(e state.Entry) bool { return e.Reported != checks.FAIL && e.Fails > 0 }
 
+// started is the daemon's start from its last state write (zero if unknown).
+func (m *model) started() time.Time {
+	if m.snap.foot == nil {
+		return time.Time{}
+	}
+	return m.snap.foot.Started
+}
+
+// sinceText is "OK since 06:00", with the older time when the daemon restarted meanwhile.
+// An unstable check also says since when it fails.
+func (m *model) sinceText(e state.Entry, now time.Time) string {
+	rep := e
+	rep.DownSince = time.Time{} // the reported state, not the streak
+	t, clamped := state.ShownSince(rep, m.started())
+	s := fmt.Sprintf("%s since %s", e.Reported, clock(t, now))
+	if clamped {
+		s = fmt.Sprintf("%s since the daemon start at %s", e.Reported, clock(t, now))
+		if b := clock(e.Since, now); b != clock(t, now) {
+			s += " (before that since " + b + ")"
+		}
+	}
+	if unstable(e) && !e.DownSince.IsZero() {
+		s += fmt.Sprintf(", failing since %s (%s)", clock(e.DownSince, now), m.tries(e))
+	}
+	return s
+}
+
+// day is a clock time for today, else the date ("Nov 2").
+func day(t, now time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	if c := clock(t, now); len(c) == 5 {
+		return c
+	}
+	if t.Local().Year() != now.Year() {
+		return t.Local().Format("Jan '06")
+	}
+	return t.Local().Format("Jan 2")
+}
+
+// Column positions shared by the check lists (Status, Remove check, System checks).
+const (
+	colMark = 4
+	colName = colMark + 8
+)
+
+// heads draws dimmed column names on inner row y.
+func (fr *frame) heads(y int, xs []int, labels []string) {
+	for i, l := range labels {
+		w := fr.iw - xs[i]
+		if i+1 < len(labels) {
+			w = xs[i+1] - xs[i] - 1
+		}
+		fr.put(y, xs[i], fit(l, max(w, 0)), sRowDim)
+	}
+}
+
 // nameWidth sizes the name column to the longest name, between 14 and a third of the width.
 func nameWidth(fr *frame, names func(func(string))) int {
 	n := 14
@@ -649,12 +716,12 @@ const daemonDown = "Daemon not running. Start it: sudo systemctl start little-wa
 
 func (m *model) drawStatus(fr *frame, now time.Time) string {
 	if m.snap.cfg == nil {
-		fr.put(0, 1, "Config is invalid: "+m.snap.cfgErr, sBg)
+		fr.put(0, 2, "Config is invalid: "+m.snap.cfgErr, sBg)
 		return ""
 	}
 	rows, ents := m.statusRows()
 	if len(ents) == 0 {
-		fr.put(0, 1, "No state yet. Is the daemon running? ("+m.snap.cfg.StateFile+")", sBg)
+		fr.put(0, 2, "No state yet. Is the daemon running? ("+m.snap.cfg.StateFile+")", sBg)
 		if m.snap.stale {
 			return daemonDown
 		}
@@ -675,26 +742,47 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 			yield(e.Name)
 		}
 	})
-	off := scrollOff(sel, len(rows), fr.ih)
-	for i := off; i < len(rows) && i-off < fr.ih; i++ {
-		r, y := rows[i], i-off
+	tx := colName + nw
+	vx := tx + 7
+	sx := fr.iw - 8 // Since
+	cx := sx - 9    // Checked
+	// when the result gets too narrow, Type goes first, then Checked
+	if cx-vx-2 < 16 {
+		vx = tx
+	}
+	if cx-vx-2 < 16 {
+		cx = sx
+	}
+	xs, hs := []int{colMark, colName}, []string{"State", "Check"}
+	if vx != tx {
+		xs, hs = append(xs, tx), append(hs, "Type")
+	}
+	xs, hs = append(xs, vx), append(hs, "Last result")
+	if cx != sx {
+		xs, hs = append(xs, cx), append(hs, "Checked")
+	}
+	fr.heads(0, append(xs, sx), append(hs, "Since"))
+	room := max(fr.ih-1, 1)
+	off := scrollOff(sel, len(rows), room)
+	for i := off; i < len(rows) && i-off < room; i++ {
+		r, y := rows[i], i-off+1
 		if r.hdr != "" {
-			fr.put(y, 1, r.hdr, sCat)
+			fr.put(y, 2, r.hdr, sCat)
 			continue
 		}
 		e := ents[r.ent]
 		mk, ms := m.markOf(e)
-		bs, ts := sBg, sBg
+		ts, ds := sBg, sRowDim
 		if r.ent == m.scur {
-			bs, ts, ms = sFocus, sFocus, sFocus
-			fr.row(y, bs)
+			ts, ms, ds = sFocus, sFocus, sFocusDim
+			fr.row(y, ts)
 		}
-		ago := strings.TrimSuffix(state.Ago(e.Since, now), " ago")
-		vx := 8 + nw + 7
-		fr.put(y, 1, mk, ms)
-		fr.put(y, 8, fit(e.Name, nw-1), ts)
-		fr.put(y, 8+nw, e.Type, ts)
-		vw := max(fr.iw-vx-len([]rune(ago))-3, 0)
+		fr.put(y, colMark, mk, ms)
+		fr.put(y, colName, fit(e.Name, nw-1), ts)
+		if vx != tx {
+			fr.put(y, tx, e.Type, ts)
+		}
+		x, vw := vx, max(cx-vx-2, 0)
 		value := e.Value
 		if unstable(e) && e.Detail != "" {
 			value = e.Detail
@@ -705,20 +793,16 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 			if r.ent == m.scur {
 				ws = sFocus
 			}
-			fr.put(y, vx, back, ws)
-			vx += len(back) + 1
+			fr.put(y, x, back, ws)
+			x += len(back) + 1
 			vw = max(vw-len(back)-1, 0)
 		}
-		val := fit(value, vw)
-		fr.put(y, vx, val, ts)
-		if at := " " + fr.th.g.dot + " " + e.LastRun.Local().Format("15:04"); !e.LastRun.IsZero() && e.Value != "" && len([]rune(val))+len(at) <= vw {
-			ds := sRowDim
-			if r.ent == m.scur {
-				ds = sFocusDim
-			}
-			fr.put(y, vx+len([]rune(val)), at, ds)
+		fr.put(y, x, fit(value, vw), ts)
+		if cx != sx && !e.LastRun.IsZero() {
+			fr.put(y, cx, day(e.LastRun, now), ds)
 		}
-		fr.put(y, fr.iw-len([]rune(ago))-2, ago, ts)
+		since, _ := state.ShownSince(e, m.started())
+		fr.put(y, sx, day(since, now), ts)
 	}
 	if m.snap.stale {
 		return daemonDown
@@ -728,7 +812,8 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 
 func (m *model) drawRemove(fr *frame) string {
 	if len(m.items) == 0 {
-		fr.put(0, 1, "No checks configured.", sBg)
+		fr.put(0, 2, "No checks configured.", sBg)
+		return ""
 	}
 	type rrow struct {
 		hdr string
@@ -753,11 +838,14 @@ func (m *model) drawRemove(fr *frame) string {
 			yield(it.name)
 		}
 	})
-	off := scrollOff(sel, len(rows), fr.ih)
-	for ri := off; ri < len(rows) && ri-off < fr.ih; ri++ {
-		r, y := rows[ri], ri-off
+	tx := colName + nw
+	fr.heads(0, []int{colMark, colName, tx, tx + 7}, []string{"State", "Check", "Type", "Watches"})
+	room := max(fr.ih-1, 1)
+	off := scrollOff(sel, len(rows), room)
+	for ri := off; ri < len(rows) && ri-off < room; ri++ {
+		r, y := rows[ri], ri-off+1
 		if r.hdr != "" {
-			fr.put(y, 1, r.hdr, sCat)
+			fr.put(y, 2, r.hdr, sCat)
 			continue
 		}
 		it := m.items[r.it]
@@ -771,14 +859,14 @@ func (m *model) drawRemove(fr *frame) string {
 			ms, ts = sFocus, sFocus
 			fr.row(y, sFocus)
 		}
-		fr.put(y, 1, mk, ms)
-		fr.put(y, 8, fit(it.name, nw-1), ts)
-		fr.put(y, 8+nw, it.typ, ts)
+		fr.put(y, colMark, mk, ms)
+		fr.put(y, colName, fit(it.name, nw-1), ts)
+		fr.put(y, tx, it.typ, ts)
 		tgt := it.target
 		if it.typ == "temp" && mk == "" && len(m.snap.es) > 0 {
 			tgt += " (not running: no sensor?)"
 		}
-		fr.put(y, 8+nw+7, tgt, ts)
+		fr.put(y, tx+7, tgt, ts)
 	}
 	return "Removing an own-host check switches it off in the config."
 }
@@ -859,7 +947,7 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 		}
 		rows = append(rows, drow{segs: []seg{{fmt.Sprintf("%-10s", "State"), sDdim}, {"FAIL", sDfail}, {" since " + clock(since, now) + " (" + m.tries(e) + ")", sDlg}}})
 	} else {
-		rows = append(rows, lab("State", fmt.Sprintf("%s since %s", e.Reported, clock(e.Since, now)), sDlg))
+		rows = append(rows, labWrap(lab, "State", m.sinceText(e, now), vw)...)
 	}
 	rows = append(rows, labWrap(lab, "Last", e.Value, vw)...)
 	if !e.LastRun.IsZero() {
@@ -1063,13 +1151,18 @@ func (m *model) drawHelp(fr *frame) {
 		k("Space", "System checks: turn a check on or off"),
 		k("Esc", "back to the menu, close a window"),
 		k("Q", "quit"),
-		k("?", "this help"),
-		line("", sDlg),
-		line("Status: [OK] [FAIL] per check; Enter shows details.", sDlg),
-		line("Nothing is saved until you confirm; little-wd applies a", sDlg),
-		line("saved config within one interval.", sDlg),
-		line("", sDlg), fr.buttons([]string{"Close"}, 0),
 	}
+	text := []drow{
+		line("State: [OK] [FAIL], [2/3] = 2 of 3 tries failed, [?] = no", sDlg),
+		line("result yet. back 1/2 = 1 of 2 good tries after a FAIL.", sDlg),
+		line("Checked: time of the last result. Since: when that state", sDlg),
+		line("began, at most since the daemon start.", sDlg),
+		line("Changes apply after you confirm, within one interval.", sDlg),
+	}
+	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only
+		rows = append(rows, text...)
+	}
+	rows = append(rows, line("", sDlg), fr.buttons([]string{"Close"}, 0))
 	fr.dialog("Keys", 66, rows, 1)
 }
 

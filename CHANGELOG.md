@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### little-wd
+
+- Status, Remove check and System checks have named columns (State, Check,
+  Type, ...) and one indent under each section heading.
+- Status: "Since" is the clock time the state began (a date if older than
+  today), for a failure the first failed check. "Checked" is the time of the
+  last result. Both replace the unexplained "29 s" and "· 07:19".
+- An OK from before a daemon restart counts from the restart, since nothing
+  was checked while the daemon was down. Same in `little-wd status`, which
+  now prints clock times instead of "29 s ago".
+- Esc in the main menu asks before quitting; Q still quits at once.
+- The help explains [OK], [FAIL], [2/3], [?], Checked and "back 1/2".
+- Times from an earlier year show the year, also in Telegram.
+
 ## [0.2.0] - 2026-11-03
 
 ### Upgrade note

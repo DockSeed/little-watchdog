@@ -291,7 +291,7 @@ func TestMenu80(t *testing.T) { // main menu
 	has(t, rs[6], "Telegram", "linked, nothing sent yet")
 	has(t, rs[7], "Dead-man switch", "every 2m")
 	has(t, rs[19], "╰", "╯")
-	has(t, rs[20], "What every check said at the daemon's last cycle (every 1m)")
+	has(t, rs[20], "Latest result of every check. Checks run every 1m.")
 	has(t, rs[22], "↑↓ move", "Enter open", "Q quit", "? help")
 	raw := r.raw()
 	has(t, raw, "\x1b[0;38;5;234;48;5;80m", "48;5;236") // header bar, hint bar
@@ -307,11 +307,15 @@ func TestStatus80(t *testing.T) { // status
 	rs := check80(t, f)
 	has(t, rs[0], "little-wd  › Status")
 	has(t, rs[1], "Status")
-	has(t, rs[2], "This machine")
-	has(t, rs[3], "[OK]", "cpu", "5% (20s avg)")
-	has(t, rs[6], "Services")
-	has(t, rs[7], "[OK]", "nextcloud", "http", "HTTP 200 in 2ms", "29 s")
-	has(t, f, "[FAIL] photos", "disk /", "temperature")
+	has(t, rs[2], "State", "Check", "Type", "Last result", "Checked", "Since")
+	has(t, rs[3], "This machine")
+	has(t, rs[4], "[OK]", "cpu", "5% (20s avg)")
+	has(t, rs[7], "Services")
+	has(t, rs[8], "[OK]    nextcloud     http   HTTP 200 in 2ms")
+	hasAt(t, rs[8], -3*time.Minute)
+	hasAt(t, rs[8], -29*time.Second)
+	has(t, f, "[FAIL]  photos", "disk /", "temperature")
+	hasAt(t, rs[9], -10*time.Minute) // FAIL: since the first failed check
 	if i := strings.Index(f, "Services"); i < strings.Index(f, "temperature") || i > strings.Index(f, "router") {
 		t.Fatal("sections out of order")
 	}
@@ -372,7 +376,8 @@ func TestRemoveList80(t *testing.T) { // remove list, both sections
 	r.wait("Services")
 	f := r.frame()
 	rs := check80(t, f)
-	has(t, rs[2], "This machine")
+	has(t, rs[2], "State", "Check", "Type", "Watches")
+	has(t, rs[3], "This machine")
 	has(t, f, "[OK]", "nextcloud", "http://192.0.2.12:80/", "router", "198.51.100.20:443",
 		"cpu", "alarm above 90% (15m average)", "memory", "alarm below 5% available", "disk /", "alarm below 10% free", "temperature", "alarm above 85 C")
 	if strings.Index(f, "Services") < strings.Index(f, "temperature") || strings.Index(f, "Services") > strings.Index(f, "router") {
@@ -559,7 +564,7 @@ func TestHelp80(t *testing.T) {
 	r.wait("[ Close ]")
 	f := r.frame()
 	check80(t, f)
-	has(t, f, "Keys", "move", "this help", "Esc")
+	has(t, f, "Keys", "move", "Esc", "Since: when that state", "at most since the daemon start")
 	r.send("\x1b")
 	r.wait("↑↓ move  Enter open")
 	lacks(t, r.frame(), "[ Close ]")
@@ -692,9 +697,9 @@ func TestLongValuesDisplay(t *testing.T) {
 	p := newCfg(t, "STATE_FILE="+sf+"\nHTTP_PHOTOS="+url+"\n")
 	r := start(t, &App{Path: p, Size: sized})
 	r.send("\r")
-	r.wait("[FAIL] photos")
+	r.wait("[FAIL]  photos")
 	rs := check80(t, r.frame())
-	has(t, rs[3], "[FAIL] photos", "~") // status row cut at the edge
+	has(t, rs[4], "[FAIL]  photos", "~") // status row cut at the edge
 	r.send("\r")
 	r.wait("[ Close ]")
 	f := r.frame()

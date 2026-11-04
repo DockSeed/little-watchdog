@@ -8,18 +8,19 @@ handful of checks, 15 MB with 40), no web interface, no open port. Linux with sy
 ```text
  little-wd  › Status                                          homelab  1 FAIL  
 ╭─────────────────────────────────── Status ───────────────────────────────────╮
-│ This machine                                                                 │
-│ [OK]   cpu           cpu    7% (15m avg) · 07:19                       29 s  │
-│ [OK]   memory        mem    61% available · 07:19                      29 s  │
-│ [OK]   disk /        disk   73% free · 07:19                           29 s  │
-│ [OK]   temperature   temp   46.2 C · 07:19                             29 s  │
-│ Services                                                                     │
-│ [OK]   nextcloud     http   HTTP 200 in 41ms · 07:19                   29 s  │
-│ [FAIL] photos        http   connection refused, nothing listens on po~ 29 s  │
-│ [OK]   ssh           tcp    open in 1ms · 07:19                        29 s  │
-│ [OK]   nas           host   open in 2ms · 07:19                        29 s  │
+│    State   Check         Type   Last result                 Checked  Since   │
+│  This machine                                                                │
+│    [OK]    cpu           cpu    7% (15m avg)                07:19    06:58   │
+│    [OK]    memory        mem    61% available               07:19    06:58   │
+│    [OK]    disk /        disk   73% free                    07:19    06:58   │
+│    [OK]    temperature   temp   46.2 C                      07:19    06:58   │
+│  Services                                                                    │
+│    [OK]    nextcloud     http   HTTP 200 in 41ms            07:19    06:58   │
+│    [FAIL]  photos        http   connection refused, nothi~  07:19    07:09   │
+│    [OK]    ssh           tcp    open in 1ms                 07:19    06:58   │
+│    [OK]    nas           host   open in 2ms                 07:19    06:58   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- cpu: OK since 07:19. No Telegram message yet.
+ cpu: OK since 06:58. No Telegram message yet.
 ```
 
 ## Install

@@ -41,14 +41,14 @@ func TestSystemChecksFormKeepsALongWindowSavable(t *testing.T) {
 
 func TestDiskWithoutPathsIsOffAndSpaceTurnsItOnWithRoot(t *testing.T) {
 	r, p := sysRig(t, "DISK_PATHS=\n")
-	has(t, check80(t, r.frame())[4], "disk", "off")
+	has(t, check80(t, r.frame())[5], "disk", "off")
 	r.send("jj ")
 	r.wait("disk is on.")
 	got := read(t, p)
 	if !strings.Contains(got, "DISK_PATHS=/\n") || strings.Contains(got, "DISK_MIN_FREE_PCT=10") && false {
 		t.Fatal(got)
 	}
-	has(t, check80(t, r.frame())[4], "alarm below 10% free")
+	has(t, check80(t, r.frame())[5], "alarm below 10% free")
 	r.send("\x03")
 	r.finish()
 }

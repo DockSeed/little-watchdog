@@ -153,7 +153,7 @@ func (m *model) sysForm(s sysCheck) {
 func (m *model) drawSys(fr *frame) string {
 	c := m.snap.cfg
 	if c == nil {
-		fr.put(0, 1, "Config is invalid: "+m.snap.cfgErr, sBg)
+		fr.put(0, 2, "Config is invalid: "+m.snap.cfgErr, sBg)
 		return ""
 	}
 	rows := sysChecks(c)
@@ -163,7 +163,9 @@ func (m *model) drawSys(fr *frame) string {
 			yield(s.name)
 		}
 	})
+	fr.heads(0, []int{colMark, colName, colName + nw}, []string{"State", "Check", "Alarm"})
 	for i, s := range rows {
+		i := i + 1
 		mk, ms, ts := "", sBg, sBg
 		switch {
 		case !s.on:
@@ -182,7 +184,7 @@ func (m *model) drawSys(fr *frame) string {
 				s.limit += " (not running: no sensor?)"
 			}
 		}
-		if i == m.ccur {
+		if i-1 == m.ccur {
 			ms = sFocus
 			ts = sFocus
 			if !s.on {
@@ -193,9 +195,9 @@ func (m *model) drawSys(fr *frame) string {
 				ms = ts
 			}
 		}
-		fr.put(i, 1, mk, ms)
-		fr.put(i, 8, fit(s.name, nw-1), ts)
-		fr.put(i, 8+nw, s.limit, ts)
+		fr.put(i, colMark, mk, ms)
+		fr.put(i, colName, fit(s.name, nw-1), ts)
+		fr.put(i, colName+nw, s.limit, ts)
 	}
 	if m.sysNote != "" {
 		return m.sysNote

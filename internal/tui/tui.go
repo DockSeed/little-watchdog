@@ -131,6 +131,7 @@ type confirm struct {
 	btns   [2]string
 	idx    int
 	answer func(bool)
+	noKeys bool // only Enter on a button answers, not y/j/n
 }
 
 // tgState is the Telegram setup progress shown as a step list.
@@ -363,8 +364,16 @@ func isBack(k Key) bool { return k.Code == Esc || (k.Code == Rune && k.R == 'q')
 func (m *model) menuKey(k Key) {
 	m.cur = move(k, m.cur, len(menuItems))
 	switch {
-	case isBack(k):
+	case k.Code == Rune && k.R == 'q':
 		m.quit = true
+	case k.Code == Esc: // Esc is "back" everywhere else, so here it asks first
+		bg := "The watchdog keeps running in the background."
+		if m.snap.stale {
+			bg = "The watchdog is not running (see the hint below)."
+		}
+		m.cf = &confirm{title: "Quit", btns: [2]string{"Quit", "Cancel"}, noKeys: true,
+			lines:  []string{"Quit little-wd?", bg},
+			answer: func(yes bool) { m.quit = yes }}
 	case k.Code == Enter:
 		it := menuItems[m.cur]
 		if locked(it, m.mode) {
@@ -435,6 +444,7 @@ func (m *model) confirmKey(k Key) {
 		c.answer(yes)
 	}
 	switch {
+	case k.Code == Rune && c.noKeys:
 	case k.Code == Rune && strings.ContainsRune("yYjJ", k.R):
 		answer(true)
 	case k.Code == Esc || (k.Code == Rune && (k.R == 'n' || k.R == 'N')):

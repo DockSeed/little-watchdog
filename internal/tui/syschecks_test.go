@@ -30,11 +30,12 @@ func TestSystemChecksListWithOffRow(t *testing.T) {
 	r, _ := sysRig(t, "TEMP_MAX_C=0\n")
 	rs := check80(t, r.frame())
 	has(t, rs[0], "little-wd  › System checks")
-	has(t, rs[2], "[OK]", "cpu", "alarm above 90% (15m average)")
-	has(t, rs[3], "[FAIL]", "memory", "alarm below 5% available")
-	has(t, rs[4], "[OK]", "disk", "alarm below 10% free")
-	has(t, rs[5], "temperature", "off")
-	lacks(t, rs[5], "[")
+	has(t, rs[2], "State", "Check", "Alarm")
+	has(t, rs[3], "[OK]", "cpu", "alarm above 90% (15m average)")
+	has(t, rs[4], "[FAIL]", "memory", "alarm below 5% available")
+	has(t, rs[5], "[OK]", "disk", "alarm below 10% free")
+	has(t, rs[6], "temperature", "off")
+	lacks(t, rs[6], "[")
 	has(t, rs[20], "Space turns a check on or off")
 	has(t, rs[22], "↑↓ move", "Enter change", "Space on/off", "Esc menu", "? help")
 	r.send("\x1b")
@@ -87,13 +88,13 @@ func TestSystemChecksSpaceTogglesAndStaysOnTheList(t *testing.T) {
 		t.Fatal(read(t, p))
 	}
 	rs := check80(t, r.frame())
-	has(t, rs[2], "cpu", "off")
+	has(t, rs[3], "cpu", "off")
 	r.send(" ")
 	r.wait("cpu is on.")
 	if !strings.Contains(read(t, p), "CPU_MAX_PCT=90\n") {
 		t.Fatal(read(t, p))
 	}
-	has(t, check80(t, r.frame())[2], "alarm above 90% (15m average)")
+	has(t, check80(t, r.frame())[3], "alarm above 90% (15m average)")
 	r.send("\x03")
 	r.finish()
 }

@@ -26,6 +26,14 @@ func withTG(t *testing.T, sf, tg string) {
 
 func hm(t time.Time) string { return t.Local().Format("15:04") }
 
+// hasAt wants the clock time now+d in row; the minute may have turned since the fixture was written.
+func hasAt(t *testing.T, row string, d time.Duration) {
+	t.Helper()
+	if a, b := hm(time.Now().Add(d)), hm(time.Now().Add(d-5*time.Second)); !strings.Contains(row, a) && !strings.Contains(row, b) {
+		t.Fatalf("missing %s in %q", a, row)
+	}
+}
+
 func TestTelegramMenuValue(t *testing.T) {
 	ago := time.Now().Add(-90 * time.Minute)
 	ts := ago.UTC().Format(time.RFC3339)
@@ -111,7 +119,9 @@ func TestStatusShowsValueTime(t *testing.T) {
 	r.send("\r")
 	r.wait("This machine")
 	rs := check80(t, r.frame())
-	has(t, rs[3], "[OK]", "12% (15m avg) · "+hm(time.Now().Add(-3*time.Minute)))
+	has(t, rs[2], "State", "Check", "Type", "Last result", "Checked", "Since")
+	has(t, rs[4], "[OK]", "12% (15m avg)")
+	hasAt(t, rs[4], -3*time.Minute)
 	r.send("\x03")
 	r.finish()
 }

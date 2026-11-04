@@ -39,7 +39,7 @@ func TestTableAndBriefCleanLoadedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{Table(es, time.Now()), Brief("h", es, time.Now())} {
+	for _, s := range []string{Table(es, time.Time{}, time.Now()), Brief("h", es, time.Now())} {
 		if strings.ContainsAny(s, "\x1b\u009b") {
 			t.Fatalf("%q", s)
 		}
@@ -242,8 +242,8 @@ func TestTable(t *testing.T) {
 	e := NewEngine(3, 2)
 	now := time.Unix(1_000_000, 0)
 	feed(e, fake{"a", "http"}, now, ok)
-	out := Table(e.Snapshot(), now.Add(5*time.Minute))
-	if !strings.Contains(out, "NAME") || !strings.Contains(out, "5 min ago") || !strings.Contains(out, "OK") {
+	out := Table(e.Snapshot(), time.Time{}, now.Add(5*time.Minute))
+	if !strings.Contains(out, "NAME") || !strings.Contains(out, When(now, now)) || !strings.Contains(out, "OK") {
 		t.Fatal(out)
 	}
 	if b := Brief("h", e.Snapshot(), now); !strings.Contains(b, "<b>Services</b>\n✅ <b>a</b>: v") {

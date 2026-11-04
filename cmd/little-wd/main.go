@@ -175,15 +175,19 @@ func cmdStatus(path string) error {
 		return err
 	}
 	warn(cfg)
-	es, err := state.ReadFile(cfg.StateFile)
+	st, err := state.ReadAll(cfg.StateFile)
 	if err != nil {
 		return err
 	}
-	if len(es) == 0 {
+	if len(st.Entries) == 0 {
 		fmt.Println("state file is empty")
 		return nil
 	}
-	fmt.Print(state.Table(es, time.Now()))
+	var started time.Time
+	if st.Foot != nil {
+		started = st.Foot.Started
+	}
+	fmt.Print(state.Table(st.Entries, started, time.Now()))
 	if age, stale := state.Stale(cfg.StateFile, cfg.StaleAfter(), time.Now()); stale {
 		fmt.Printf("\nSTALE: the daemon has not reported for %s (is little-watchdog running?)\n", age.Round(time.Second))
 	}

@@ -25,8 +25,8 @@
   value in 1 min", or "ok at 21:16, ..." after a config change. A failing check
   reads "down since 19:56, first value in 1 min".
 - /status shows a failed check that answers again but is not yet back as
-  "answering again (1 of 2 good tries), down since 19:56" (RECOVER_AFTER), not
-  the old error. `little-wd status` adds "(answering again, 1 of 2 good tries)".
+  "answers again, all-clear after 1 more good try. Down since 19:56."
+  (RECOVER_AFTER), not the old error. `little-wd status` adds the same hint.
 - The start message lists the checks in /status order: this machine first,
   then the services.
 

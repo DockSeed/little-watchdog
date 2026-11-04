@@ -704,10 +704,10 @@ func TestBriefWhileRecovering(t *testing.T) {
 		t.Fatalf("still failing: got %q, want %q", got, want)
 	}
 	e.Observe(nas, good, t0.Add(time.Minute))
-	if got, want := line(e, 1), "❌ <b>nas</b>: answering again (1 of 2 good tries), down since 19:56"; got != want {
+	if got, want := line(e, 1), "❌ <b>nas</b>: answers again, all-clear after 1 more good try. Down since 19:56."; got != want {
 		t.Fatalf("recovering: got %q, want %q", got, want)
 	}
-	if out := Table(e.Snapshot(), e.RecoverN(), time.Time{}, t0.Add(time.Minute)); !strings.Contains(out, "HTTP 200 in 3ms (answering again, 1 of 2 good tries)") {
+	if out := Table(e.Snapshot(), e.RecoverN(), time.Time{}, t0.Add(time.Minute)); !strings.Contains(out, "HTTP 200 in 3ms (answers again, all-clear after 1 more good try)") {
 		t.Fatalf("table: %s", out)
 	}
 	// a result without a verdict keeps its own wording, not the hint
@@ -732,14 +732,14 @@ func TestBriefWhileRecovering(t *testing.T) {
 	e = NewEngine(1, 3)
 	feed(e, nas, t0, refused, good, good)
 	e.Configure(1, 2)
-	if got, want := line(e, 2), "❌ <b>nas</b>: answering again (back on the next good try), down since 19:56"; got != want {
+	if got, want := line(e, 2), "❌ <b>nas</b>: answers again, all-clear on the next good try. Down since 19:56."; got != want {
 		t.Fatalf("lowered: got %q, want %q", got, want)
 	}
 
 	// a machine check is ok again, not answering
 	e = NewEngine(1, 3)
 	feed(e, fake{"disk", "disk"}, t0, bad, ok)
-	if got, want := line(e, 1), "❌ <b>disk</b>: ok again (1 of 3 good tries), down since 19:56"; got != want {
+	if got, want := line(e, 1), "❌ <b>disk</b>: ok again, all-clear after 2 more good tries. Down since 19:56."; got != want {
 		t.Fatalf("machine: got %q, want %q", got, want)
 	}
 

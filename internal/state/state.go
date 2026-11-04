@@ -635,20 +635,23 @@ func ShownSince(e Entry, started time.Time) (t time.Time, clamped bool) {
 }
 
 // Recovering is the hint for a reported FAIL that has good results again but not yet
-// recoverAfter of them in a row: "answering again" (a machine check: "ok again") and
-// "1 of 2 good tries". Both are empty otherwise.
+// recoverAfter of them in a row: "answers again" (a machine check: "ok again") and
+// "all-clear after 1 more good try". Both are empty otherwise.
 func Recovering(en Entry, recoverAfter int) (again, progress string) {
 	if en.Reported != checks.FAIL || en.OKs <= 0 || recoverAfter <= 0 {
 		return "", ""
 	}
 	again = "ok again"
 	if isService(en.Type) {
-		again = "answering again"
+		again = "answers again"
 	}
 	if en.OKs >= recoverAfter { // RECOVER_AFTER was lowered by a reload
-		return again, "back on the next good try"
+		return again, "all-clear on the next good try"
 	}
-	return again, fmt.Sprintf("%d of %d good tries", en.OKs, recoverAfter)
+	if n := recoverAfter - en.OKs; n > 1 {
+		return again, fmt.Sprintf("all-clear after %d more good tries", n)
+	}
+	return again, "all-clear after 1 more good try"
 }
 
 // RecoverN is the current RECOVER_AFTER (it changes on a config reload).
@@ -767,7 +770,7 @@ func briefLine(en Entry, recoverAfter int, started, now time.Time) string {
 			return "❌ " + name + ": " + state + ", " + val
 		}
 		if again, n := Recovering(en, recoverAfter); again != "" { // short: no good value
-			return "❌ " + name + ": " + again + " (" + n + "), " + state
+			return "❌ " + name + ": " + again + ", " + n + ". " + strings.ToUpper(state[:1]) + state[1:] + "."
 		}
 		return "❌ " + name + ": " + with(state)
 	case checks.UNKNOWN:

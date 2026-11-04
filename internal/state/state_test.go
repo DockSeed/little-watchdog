@@ -39,7 +39,7 @@ func TestTableAndBriefCleanLoadedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{Table(es, time.Time{}, time.Now()), Brief("h", es, time.Now())} {
+	for _, s := range []string{Table(es, time.Time{}, time.Now()), Brief("h", es, time.Time{}, time.Now())} {
 		if strings.ContainsAny(s, "\x1b\u009b") {
 			t.Fatalf("%q", s)
 		}
@@ -246,7 +246,7 @@ func TestTable(t *testing.T) {
 	if !strings.Contains(out, "NAME") || !strings.Contains(out, When(now, now)) || !strings.Contains(out, "OK") {
 		t.Fatal(out)
 	}
-	if b := Brief("h", e.Snapshot(), now); !strings.Contains(b, "<b>Services</b>\n✅ <b>a</b>: v") {
+	if b := Brief("h", e.Snapshot(), time.Time{}, now); !strings.Contains(b, "<b>Services</b>\n✅ <b>a</b>: v") {
 		t.Fatal(b)
 	}
 }
@@ -289,11 +289,11 @@ func TestHostInMessagesAndBrief(t *testing.T) {
 	if m := e.Observe(fake{"a", "http"}, bad, at); m != "❌ <b>a</b> on <b>box</b> is down since 14:07: HTTP 502." {
 		t.Fatal(m)
 	}
-	b := Brief("box", e.Snapshot(), at)
+	b := Brief("box", e.Snapshot(), time.Time{}, at)
 	if want := "<b>box: 1 of 1 check failing.</b>\n<b>Services</b>\n❌ <b>a</b>: down since 14:07"; b != want {
 		t.Fatalf("%q", b)
 	}
-	if b := Brief("", nil, at); b != "<b>No checks are set up.</b>" {
+	if b := Brief("", nil, time.Time{}, at); b != "<b>No checks are set up.</b>" {
 		t.Fatalf("%q", b)
 	}
 	if m := e.Observe(fake{"a", "http"}, ok, at.Add(5*time.Minute)); m != "✅ <b>a</b> on <b>box</b> is back after 5 min." {
@@ -304,10 +304,10 @@ func TestHostInMessagesAndBrief(t *testing.T) {
 func TestBriefUnknownCheckAndPrefix(t *testing.T) {
 	es := []Entry{{Name: "a", Reported: checks.UNKNOWN}}
 	now := time.Now()
-	if got, want := Brief("box", es, now), "<b>box: 1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
+	if got, want := Brief("box", es, time.Time{}, now), "<b>box: 1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
 		t.Fatalf("%q", got)
 	}
-	if got, want := Brief("", es, now), "<b>1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
+	if got, want := Brief("", es, time.Time{}, now), "<b>1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
 		t.Fatalf("%q", got)
 	}
 }
@@ -600,7 +600,7 @@ func TestBriefGroupsMachineBeforeServices(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 3, 15, 0, 0, 0, time.Local)
 	want := "<b>homelab: 1 of 5 checks failing.</b>\n<b>This machine</b>\n✅ <b>cpu</b>: 5% (15m avg)\n✅ <b>memory</b>: 70% available\n- <b>temperature</b>: not known yet\n<b>Services</b>\n✅ <b>web</b>: 200 OK\n❌ <b>box</b>: timeout, down since 14:05"
-	if got := Brief("homelab", es, now); got != want {
+	if got := Brief("homelab", es, time.Time{}, now); got != want {
 		t.Fatalf("\n%s\nwant\n%s", got, want)
 	}
 }
@@ -612,7 +612,7 @@ func TestBriefServicesFollowServiceTypes(t *testing.T) {
 		{Name: "w", Type: "http", Reported: checks.OK},
 		{Name: "q", Type: "http", Reported: checks.OK},
 	}
-	got := Brief("h", es, time.Now())
+	got := Brief("h", es, time.Time{}, time.Now())
 	i := func(s string) int { return strings.Index(got, "✅ <b>"+s+"</b>") }
 	if !(i("w") < i("q") && i("q") < i("p") && i("p") < i("n")) {
 		t.Fatalf("order:\n%s", got)
@@ -644,7 +644,7 @@ func TestHostileNamesAndDetailsRenderValidHTML(t *testing.T) {
 		}
 	}
 	e.Observe(fake{"u", "tcp"}, checks.Result{Status: checks.OK, Value: hostile}, t0)
-	b := Brief(hostile, e.Snapshot(), t0)
+	b := Brief(hostile, e.Snapshot(), time.Time{}, t0)
 	if err := testfake.CheckHTML(b); err != nil || strings.Contains(b, "</code>") {
 		t.Fatalf("%v: %q", err, b)
 	}

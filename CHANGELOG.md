@@ -13,8 +13,17 @@
   was checked while the daemon was down. Same in `little-wd status`, which
   now prints clock times instead of "29 s ago".
 - Esc in the main menu asks before quitting; Q still quits at once.
+- A value without a verdict yet (CPU warm-up, a sensor read error) is dimmed;
+  `little-wd status` adds "(no verdict yet)".
 - The help explains [OK], [FAIL], [2/3], [?], Checked and "back 1/2".
 - Times from an earlier year show the year, also in Telegram.
+
+### Telegram messages
+
+- /status no longer shows a check without a verdict yet (CPU warm-up, a
+  sensor read error) as freshly OK: "ok before the restart at 20:56, first
+  value in 1 min", or "ok at 21:16, ..." after a config change. A failing check
+  reads "down since 19:56, first value in 1 min".
 
 ## [0.2.0] - 2026-11-03
 

@@ -47,6 +47,27 @@ func TestSinceCountsFromTheDaemonStartAfterARestart(t *testing.T) {
 	r.finish()
 }
 
+func TestStatusDimsAWarmUpPlaceholder(t *testing.T) {
+	sf := writeState(t,
+		ent{"cpu", "cpu", "OK", "first value in 1 min", 0, time.Time{}, time.Time{}},
+		ent{"tcp", "dns", "OK", "open in 0ms", 0, time.Time{}, time.Time{}})
+	b, _ := os.ReadFile(sf)
+	os.WriteFile(sf, []byte(strings.Replace(string(b), `"value":"first value in 1 min"`, `"value":"first value in 1 min","no_value":true`, 1)), 0o600)
+	state.Beat(sf, time.Now())
+	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_DNS=h:53\n"), Size: sized})
+	r.send("\r")
+	r.wait("first value in 1 min")
+	has(t, r.raw(), "38;5;252;48;5;240mfirst value in 1 min") // sFocusDim on the bar
+	r.send("j")
+	r.wait("dns: OK")
+	has(t, r.raw(), "38;5;245;48;5;234mfirst value in 1 min") // sRowDim
+	if strings.Contains(r.raw(), "38;5;245;48;5;234mopen in 0ms") {
+		t.Fatal("a measured value is dimmed")
+	}
+	r.send("\x03")
+	r.finish()
+}
+
 func TestQuitDialogIgnoresLetterKeys(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized})
 	r.wait("Dead-man switch")

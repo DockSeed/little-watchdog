@@ -797,7 +797,11 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 			x += len(back) + 1
 			vw = max(vw-len(back)-1, 0)
 		}
-		fr.put(y, x, fit(value, vw), ts)
+		vs := ts
+		if e.NoValue { // no verdict: show it, dimmed, not an older failure text
+			value, vs = e.Value, ds
+		}
+		fr.put(y, x, fit(value, vw), vs)
 		if cx != sx && !e.LastRun.IsZero() {
 			fr.put(y, cx, day(e.LastRun, now), ds)
 		}

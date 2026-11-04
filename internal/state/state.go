@@ -35,7 +35,9 @@ type Entry struct {
 	OKs       int           `json:"oks"`
 	DownSince time.Time     `json:"down_since,omitzero"` // start of the failing streak
 	Value     string        `json:"value,omitempty"`
-	Detail    string        `json:"detail,omitempty"` // latest error of the running failure streak
+	NoValue   bool          `json:"no_value,omitempty"`  // the last result was UNKNOWN: Value is no verdict (warm-up, read error)
+	VerdictAt time.Time     `json:"verdict_at,omitzero"` // last OK or FAIL result
+	Detail    string        `json:"detail,omitempty"`    // latest error of the running failure streak
 	LastRun   time.Time     `json:"last_run"`
 	LastMsg   string        `json:"last_msg,omitempty"`
 	LastMsgAt time.Time     `json:"last_msg_at,omitzero"`
@@ -283,13 +285,17 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	npend := len(en.Pending)
 	name, detail := checks.Sanitize(c.Name()), checks.Sanitize(r.Detail)
 	bname, bdetail := telegram.B(name), telegram.Esc(detail) // messages are Telegram HTML
-	en.Name, en.Type, en.Value, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), now
+	nv0 := en.NoValue
+	en.Name, en.Type, en.Value, en.NoValue, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), r.Status == checks.UNKNOWN, now
+	if !en.NoValue {
+		en.VerdictAt = now
+	}
 	defer func() {
 		switch {
-		case sigOf() != before || len(en.Pending) != npend || msg != "":
-			e.dirty = true
-		case en.Fails != fails0 || en.OKs != oks0:
-			e.cdirty = true
+		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue:
+			e.dirty = true // a verdict after none shows at once
+		case en.Fails != fails0 || en.OKs != oks0 || en.NoValue != nv0:
+			e.cdirty = true // a flapping sensor must not write every round
 		}
 	}()
 
@@ -637,7 +643,11 @@ func Table(es []Entry, started, now time.Time) string {
 		if t, _ := ShownSince(en, started); !t.IsZero() {
 			since = When(t, now)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", checks.Sanitize(en.Name), checks.Clean(en.Type), checks.Clean(string(en.Reported)), since, checks.Sanitize(en.Value))
+		val := checks.Sanitize(en.Value)
+		if en.NoValue && en.Reported != checks.UNKNOWN {
+			val += " (no verdict yet)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", checks.Sanitize(en.Name), checks.Clean(en.Type), checks.Clean(string(en.Reported)), since, val)
 	}
 	tw.Flush()
 	return sb.String()
@@ -666,8 +676,8 @@ func Rank(list []string, t string) int {
 }
 
 // Brief renders entries for the Telegram /status reply (Telegram HTML): a bold summary line, then the
-// machine's own checks and the services under a heading each.
-func Brief(host string, es []Entry, now time.Time) string {
+// machine's own checks and the services under a heading each. started is the daemon start.
+func Brief(host string, es []Entry, started, now time.Time) string {
 	if len(es) == 0 {
 		return telegram.Head(host, "no checks are set up.")
 	}
@@ -703,14 +713,14 @@ func Brief(host string, es []Entry, now time.Time) string {
 		}
 		sb.WriteString("<b>" + g.head + "</b>\n")
 		for _, en := range g.es {
-			sb.WriteString(briefLine(en, now) + "\n")
+			sb.WriteString(briefLine(en, started, now) + "\n")
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
 // briefLine is "MARK name: value" (Telegram HTML) with the state added only where it is not plain ok.
-func briefLine(en Entry, now time.Time) string {
+func briefLine(en Entry, started, now time.Time) string {
 	name, val := telegram.B(checks.Sanitize(en.Name)), telegram.Esc(checks.Sanitize(en.Value))
 	with := func(state string) string { // value first; its own brackets stay single
 		if val == "" {
@@ -724,9 +734,25 @@ func briefLine(en Entry, now time.Time) string {
 		if !en.DownSince.IsZero() {
 			state = "down since " + When(en.DownSince, now)
 		}
+		if en.NoValue && val != "" { // no verdict: state first
+			return "❌ " + name + ": " + state + ", " + val
+		}
 		return "❌ " + name + ": " + with(state)
 	case checks.UNKNOWN:
 		return "- " + name + ": " + with("not known yet")
+	}
+	if en.NoValue { // the ok is from an earlier result
+		s := "✅ " + name + ": ok so far"
+		switch v := en.VerdictAt; {
+		case !started.IsZero() && v.Before(started) && en.Since.Before(started):
+			s = "✅ " + name + ": ok before the restart at " + When(started, now)
+		case !v.IsZero():
+			s = "✅ " + name + ": ok at " + When(v, now)
+		}
+		if val != "" {
+			s += ", " + val
+		}
+		return s
 	}
 	if val == "" {
 		val = "ok"

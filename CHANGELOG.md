@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
 ### little-wd
 
 - New menu item Settings: check interval, alarm after, all-clear after and

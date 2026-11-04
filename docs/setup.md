@@ -7,7 +7,7 @@ Download only from the
 picks the right file for your device (`amd64`, `arm64` or `armhf`):
 
 ```sh
-v=0.2.0
+v=0.3.0
 base=https://github.com/DockSeed/little-watchdog
 deb=little-watchdog_${v}_$(dpkg --print-architecture).deb
 wget -q --show-progress $base/releases/download/v$v/$deb $base/releases/download/v$v/SHA256SUMS \

@@ -51,6 +51,8 @@
   the release notes; the link to an outside website is gone.
 - README states that the project is not affiliated with Telegram or
   Healthchecks.io.
+- docs/setup.md and docs/config.md describe Settings, Every and Sensor; the
+  README lists the commands and the Status side panel.
 
 ## [0.2.0] - 2026-11-03
 

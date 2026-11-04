@@ -3,7 +3,8 @@
 Watches web pages, ports, hosts and its own machine, and tells you on Telegram
 when something goes down or comes back. A dead-man's-switch tells you when the
 watchdog itself stops. One static binary, about 10 MB of RAM (measured with a
-handful of checks, 15 MB with 40), no web interface, no open port. Linux with systemd. For homelabs, not for critical infrastructure.
+handful of checks, 15 MB with 40), no web interface, no open port. Linux with
+systemd. For homelabs, not for critical infrastructure.
 Unofficial; not affiliated with Telegram or Healthchecks.io.
 
 ```text
@@ -24,6 +25,9 @@ Unofficial; not affiliated with Telegram or Healthchecks.io.
  cpu: OK since 06:58. No Telegram message yet.
 ```
 
+On a terminal of 120 columns or more, Status gets a side panel: the selected
+check, load, PSI, uptime, and little-wd's own RAM and disk writes.
+
 ## Install
 
 On Debian, Ubuntu or Raspberry Pi OS:
@@ -40,10 +44,24 @@ to check the download and set up the dead-man's-switch.
 
 ## How it works
 
-A check reports after 3 failed rounds (one round per minute) and again when it
-is back. Messages that cannot be sent wait and go out later. `/status` in the
-chat lists all checks. Tested with up to 1000 checks on a small arm64 board
-with 10% of one core and 32 MB RAM.
+By default a check runs once a minute, reports after 3 failed rounds and gives
+the all-clear after 2 good rounds; change this under Settings in `little-wd`.
+Messages that cannot be sent wait and go out later. `/status` in the chat
+lists all checks. Tested with up to 1000 checks on a small arm64 board with 10%
+of one core and 32 MB RAM.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `little-wd` | Full-screen setup and status (needs a terminal). |
+| `little-wd status` | Prints the last results as a table. |
+| `little-wd check` | Runs all checks once, prints the results, sends nothing. |
+| `little-wd run` | The daemon; the systemd service starts it. |
+| `little-wd version` | Prints the version. |
+
+All take `-config PATH`; default `/etc/little-watchdog/little-watchdog.env`, or
+`$LITTLE_WATCHDOG_CONFIG`.
 
 ## Build from source
 

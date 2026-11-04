@@ -11,9 +11,9 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 | `DEADMAN_URL` | off | Healthchecks ping URL, `https://`. |
 | `DEADMAN_EVERY` | `2m` | Time between pings, at least `60s`. |
 | `INTERVAL` | `60s` | Time between rounds, at least `10s`. |
-| `FAIL_AFTER` | `3` | Failed rounds before an alarm. |
-| `RECOVER_AFTER` | `2` | Good rounds before the all-clear. |
-| `TIMEOUT` | `10s` | Longest wait per check, up to `10m`. |
+| `FAIL_AFTER` | `3` | Failed rounds before an alarm; whole number, at least `1`. |
+| `RECOVER_AFTER` | `2` | Good rounds before the all-clear; whole number, at least `1`. |
+| `TIMEOUT` | `10s` | Longest wait per check, above `0`, up to `10m`. |
 | `HTTP_<NAME>` | | `url`, or `url contains=TEXT`. OK on 200 to 399. |
 | `TCP_<NAME>` | | `host:port` accepts a connection. |
 | `HOST_<NAME>` | | `host:port` answers (refused counts as alive). |
@@ -21,13 +21,24 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 | `DISK_MIN_FREE_PCT` | `10` | Alarm below this free space. |
 | `MEM_MIN_AVAIL_PCT` | `5` | Alarm below this available memory. |
 | `TEMP_MAX_C` | `85` | Alarm above this temperature. |
-| `TEMP_SENSOR` | hottest | A `/sys` temperature file instead. |
+| `TEMP_SENSOR` | hottest | A file under `/sys/class/thermal`, `/sys/class/hwmon` or `/sys/devices`. |
 | `CPU_MAX_PCT` | `90` | Alarm above this average load. |
-| `CPU_WINDOW` | `15m` | Window for the average. |
+| `CPU_WINDOW` | `15m` | Window for the average, at least `INTERVAL`. |
 | `STATE_FILE` | `/var/lib/little-watchdog/state.json` | State file. |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | For tests. |
 
-`0` (or empty `DISK_PATHS`) switches an own-host check off. The limits of the own-host checks can also be changed (and the checks turned on or off) in `little-wd` under System checks, `TEMP_SENSOR` too. `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER` and `TIMEOUT` are under Settings, `DEADMAN_EVERY` under Dead-man switch; `little-wd` checks them with the same limits. `STATE_FILE` and `TELEGRAM_API_URL` are edited in the file only. `<NAME>` is letters,
-digits and `_`. Example: `contrib/little-watchdog.env.example`.
+`0` (or empty `DISK_PATHS`) switches an own-host check off. `<NAME>` is
+letters, digits and `_`. Example: `contrib/little-watchdog.env.example`.
 
-Disk writes (SD cards wear out): the daemon writes the state file about every 10 minutes when nothing happens (144 a day), a flapping check writes the state every 5 minutes instead of the 10-minute refresh (288 a day in the worst case in total, 144 when steady), and every alarm or all-clear message adds two writes; `little-wd` shows the measured rate.
+Where in `little-wd` (it checks the values with the same limits):
+
+- Settings: `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER`, `TIMEOUT`.
+- Dead-man switch: `DEADMAN_URL`, `DEADMAN_EVERY`.
+- System checks: the limits (and on or off), `CPU_WINDOW`, `TEMP_SENSOR`.
+- File only: `STATE_FILE`, `TELEGRAM_API_URL`, more disks in `DISK_PATHS`
+  (Remove check drops one).
+
+Disk writes (SD cards wear out): the daemon writes the state file about every
+10 minutes when nothing happens (144 a day). A flapping check writes it every
+5 minutes instead (288 a day in the worst case, 144 when steady). Every alarm
+or all-clear message adds two writes. `little-wd` shows the measured rate.

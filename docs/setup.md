@@ -51,20 +51,25 @@ Use a separate bot for the watchdog. If the token leaks, revoke it with
 ## 3. Checks
 
 In `little-wd` choose **Add check**: a website, a port or a host. The own
-machine (disk, memory, temperature, CPU) is watched by default. `?` shows the
-keys. Hand editing: [config.md](config.md).
+machine (disk, memory, temperature, CPU) is watched by default; change its
+limits under **System checks**. The temperature check takes the hottest sensor;
+to pick one, fill in **Sensor** under System checks > temperature. **Settings**
+sets how often the checks run and after how many rounds the alarm and the
+all-clear go out. `?` shows the keys. Hand editing: [config.md](config.md).
 
 ## 4. Dead-man's-switch (recommended)
 
-little-watchdog pings a URL every 2 minutes. If the pings stop, because the
+little-watchdog pings a URL every 2 minutes by default (**Every** under
+Dead-man switch in `little-wd`, at least 60s). If the pings stop, because the
 machine or the watchdog died, [Healthchecks.io](https://healthchecks.io) alarms
 you. It has a free plan and can also be self-hosted.
 
 1. Create an account and a check.
-2. Set **Period** to 2 minutes (the Every time under Dead-man switch in
-   `little-wd`) and **Grace Time** to at least twice that (4 minutes for 2m).
+2. Set **Period** to the same time as Every and **Grace Time** to at least
+   twice that (4 minutes for 2m).
 3. Copy the ping URL (keep it secret) and paste it in `little-wd` under
-   **Dead-man switch**.
+   **Dead-man switch**. Later, an empty URL keeps the current one and `off`
+   switches the dead-man's-switch off.
 4. In Healthchecks, set up a notification other than Telegram, for example
    email.
 

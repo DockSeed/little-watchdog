@@ -41,7 +41,7 @@ func TestBriefWarmUpAfterARestart(t *testing.T) {
 	now := start.Add(10 * time.Second)
 	e := restarted(t, checks.Result{Status: checks.OK, Value: "5% (5m avg)"}, t0, start)
 	e.Observe(fake{"cpu", "cpu"}, warm, now)
-	got := lastLine(Brief("h", e.Snapshot(), e.Started, now))
+	got := lastLine(Brief("h", e.Snapshot(), 2, e.Started, now))
 	t.Log("warm-up after restart: " + got)
 	if got != "✅ <b>cpu</b>: ok before the restart at 20:56, first value in 1 min" {
 		t.Fatal(got)
@@ -54,13 +54,13 @@ func TestBriefWarmUpAfterARestart(t *testing.T) {
 		t.Fatal("marker not stored:", string(b))
 	}
 	e.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "7% (1m avg)"}, now.Add(time.Minute))
-	got = lastLine(Brief("h", e.Snapshot(), e.Started, now.Add(time.Minute)))
+	got = lastLine(Brief("h", e.Snapshot(), 2, e.Started, now.Add(time.Minute)))
 	t.Log("normal OK: " + got)
 	if got != "✅ <b>cpu</b>: 7% (1m avg)" || e.Snapshot()[0].NoValue {
 		t.Fatal("marker not cleared:", got)
 	}
 	// another day: When adds the date
-	if got := lastLine(Brief("h", []Entry{{Name: "cpu", Type: "cpu", Reported: checks.OK, Since: t0, NoValue: true, Value: "x"}}, start, start.Add(24*time.Hour))); got != "✅ <b>cpu</b>: ok before the restart at Nov 4 20:56, x" {
+	if got := lastLine(Brief("h", []Entry{{Name: "cpu", Type: "cpu", Reported: checks.OK, Since: t0, NoValue: true, Value: "x"}}, 2, start, start.Add(24*time.Hour))); got != "✅ <b>cpu</b>: ok before the restart at Nov 4 20:56, x" {
 		t.Fatal(got)
 	}
 }
@@ -71,14 +71,14 @@ func TestBriefWarmUpFreshInstallAndFail(t *testing.T) {
 	e := NewEngine(1, 1)
 	e.Started = start
 	e.Observe(fake{"cpu", "cpu"}, warm, now)
-	got := lastLine(Brief("h", e.Snapshot(), e.Started, now))
+	got := lastLine(Brief("h", e.Snapshot(), 2, e.Started, now))
 	t.Log("fresh install warm-up: " + got)
 	if got != "- <b>cpu</b>: first value in 1 min, not known yet" {
 		t.Fatal(got)
 	}
 	e = restarted(t, checks.Result{Status: checks.FAIL, Value: "97% (5m avg)"}, start.Add(-time.Hour), start)
 	e.Observe(fake{"cpu", "cpu"}, warm, now)
-	got = lastLine(Brief("h", e.Snapshot(), e.Started, now))
+	got = lastLine(Brief("h", e.Snapshot(), 2, e.Started, now))
 	t.Log("FAIL across restart: " + got)
 	if got != "❌ <b>cpu</b>: down since 19:56, first value in 1 min" {
 		t.Fatal(got)
@@ -90,16 +90,16 @@ func TestEveryUnknownResultIsNoVerdict(t *testing.T) {
 	start := t0.Add(116 * time.Minute) // 20:56
 	e := restarted(t, checks.Result{Status: checks.OK, Value: "5%"}, t0, start)
 	e.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.UNKNOWN, Value: "97% (3m of 15m avg)"}, start.Add(3*time.Minute))
-	if got := lastLine(Brief("h", e.Snapshot(), start, start.Add(3*time.Minute))); got != "✅ <b>cpu</b>: ok before the restart at 20:56, 97% (3m of 15m avg)" {
+	if got := lastLine(Brief("h", e.Snapshot(), 2, start, start.Add(3*time.Minute))); got != "✅ <b>cpu</b>: ok before the restart at 20:56, 97% (3m of 15m avg)" {
 		t.Fatal(got)
 	}
-	if out := Table(e.Snapshot(), start, start); !strings.Contains(out, "(no verdict yet)") {
+	if out := Table(e.Snapshot(), 2, start, start); !strings.Contains(out, "(no verdict yet)") {
 		t.Fatal(out)
 	}
 	// an OK after the start, then no verdict (a reload reset the samples): no restart wording
 	e.Observe(fake{"cpu", "cpu"}, checks.Result{Status: checks.OK, Value: "5%"}, start.Add(20*time.Minute))
 	e.Observe(fake{"cpu", "cpu"}, warm, start.Add(21*time.Minute))
-	if got := lastLine(Brief("h", e.Snapshot(), start, start.Add(21*time.Minute))); got != "✅ <b>cpu</b>: ok at 21:16, first value in 1 min" {
+	if got := lastLine(Brief("h", e.Snapshot(), 2, start, start.Add(21*time.Minute))); got != "✅ <b>cpu</b>: ok at 21:16, first value in 1 min" {
 		t.Fatal(got)
 	}
 }

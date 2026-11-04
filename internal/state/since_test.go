@@ -31,7 +31,7 @@ func TestWhenShowsTheYearOfAnOlderDate(t *testing.T) {
 	if got := When(time.Date(2026, 1, 1, 9, 5, 0, 0, time.Local), now); got != "Jan 1 09:05" {
 		t.Fatal(got)
 	}
-	if out := Table([]Entry{{Name: "a", Type: "http", Reported: "OK", Since: now.Add(-time.Hour)}}, time.Time{}, now); !strings.Contains(out, "09:00") {
+	if out := Table([]Entry{{Name: "a", Type: "http", Reported: "OK", Since: now.Add(-time.Hour)}}, 2, time.Time{}, now); !strings.Contains(out, "09:00") {
 		t.Fatal(out)
 	}
 }

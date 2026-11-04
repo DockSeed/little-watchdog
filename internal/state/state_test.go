@@ -39,7 +39,7 @@ func TestTableAndBriefCleanLoadedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{Table(es, time.Time{}, time.Now()), Brief("h", es, time.Time{}, time.Now())} {
+	for _, s := range []string{Table(es, 2, time.Time{}, time.Now()), Brief("h", es, 2, time.Time{}, time.Now())} {
 		if strings.ContainsAny(s, "\x1b\u009b") {
 			t.Fatalf("%q", s)
 		}
@@ -242,11 +242,11 @@ func TestTable(t *testing.T) {
 	e := NewEngine(3, 2)
 	now := time.Unix(1_000_000, 0)
 	feed(e, fake{"a", "http"}, now, ok)
-	out := Table(e.Snapshot(), time.Time{}, now.Add(5*time.Minute))
+	out := Table(e.Snapshot(), 2, time.Time{}, now.Add(5*time.Minute))
 	if !strings.Contains(out, "NAME") || !strings.Contains(out, When(now, now)) || !strings.Contains(out, "OK") {
 		t.Fatal(out)
 	}
-	if b := Brief("h", e.Snapshot(), time.Time{}, now); !strings.Contains(b, "<b>Services</b>\n✅ <b>a</b>: v") {
+	if b := Brief("h", e.Snapshot(), 2, time.Time{}, now); !strings.Contains(b, "<b>Services</b>\n✅ <b>a</b>: v") {
 		t.Fatal(b)
 	}
 }
@@ -289,11 +289,11 @@ func TestHostInMessagesAndBrief(t *testing.T) {
 	if m := e.Observe(fake{"a", "http"}, bad, at); m != "❌ <b>a</b> on <b>box</b> is down since 14:07: HTTP 502." {
 		t.Fatal(m)
 	}
-	b := Brief("box", e.Snapshot(), time.Time{}, at)
+	b := Brief("box", e.Snapshot(), 2, time.Time{}, at)
 	if want := "<b>box: 1 of 1 check failing.</b>\n<b>Services</b>\n❌ <b>a</b>: down since 14:07"; b != want {
 		t.Fatalf("%q", b)
 	}
-	if b := Brief("", nil, time.Time{}, at); b != "<b>No checks are set up.</b>" {
+	if b := Brief("", nil, 2, time.Time{}, at); b != "<b>No checks are set up.</b>" {
 		t.Fatalf("%q", b)
 	}
 	if m := e.Observe(fake{"a", "http"}, ok, at.Add(5*time.Minute)); m != "✅ <b>a</b> on <b>box</b> is back after 5 min." {
@@ -304,10 +304,10 @@ func TestHostInMessagesAndBrief(t *testing.T) {
 func TestBriefUnknownCheckAndPrefix(t *testing.T) {
 	es := []Entry{{Name: "a", Reported: checks.UNKNOWN}}
 	now := time.Now()
-	if got, want := Brief("box", es, time.Time{}, now), "<b>box: 1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
+	if got, want := Brief("box", es, 2, time.Time{}, now), "<b>box: 1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
 		t.Fatalf("%q", got)
 	}
-	if got, want := Brief("", es, time.Time{}, now), "<b>1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
+	if got, want := Brief("", es, 2, time.Time{}, now), "<b>1 check, none failing.</b>\n<b>Services</b>\n- <b>a</b>: not known yet"; got != want {
 		t.Fatalf("%q", got)
 	}
 }
@@ -600,7 +600,7 @@ func TestBriefGroupsMachineBeforeServices(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 3, 15, 0, 0, 0, time.Local)
 	want := "<b>homelab: 1 of 5 checks failing.</b>\n<b>This machine</b>\n✅ <b>cpu</b>: 5% (15m avg)\n✅ <b>memory</b>: 70% available\n- <b>temperature</b>: not known yet\n<b>Services</b>\n✅ <b>web</b>: 200 OK\n❌ <b>box</b>: timeout, down since 14:05"
-	if got := Brief("homelab", es, time.Time{}, now); got != want {
+	if got := Brief("homelab", es, 2, time.Time{}, now); got != want {
 		t.Fatalf("\n%s\nwant\n%s", got, want)
 	}
 }
@@ -612,7 +612,7 @@ func TestBriefServicesFollowServiceTypes(t *testing.T) {
 		{Name: "w", Type: "http", Reported: checks.OK},
 		{Name: "q", Type: "http", Reported: checks.OK},
 	}
-	got := Brief("h", es, time.Time{}, time.Now())
+	got := Brief("h", es, 2, time.Time{}, time.Now())
 	i := func(s string) int { return strings.Index(got, "✅ <b>"+s+"</b>") }
 	if !(i("w") < i("q") && i("q") < i("p") && i("p") < i("n")) {
 		t.Fatalf("order:\n%s", got)
@@ -644,7 +644,7 @@ func TestHostileNamesAndDetailsRenderValidHTML(t *testing.T) {
 		}
 	}
 	e.Observe(fake{"u", "tcp"}, checks.Result{Status: checks.OK, Value: hostile}, t0)
-	b := Brief(hostile, e.Snapshot(), time.Time{}, t0)
+	b := Brief(hostile, e.Snapshot(), 2, time.Time{}, t0)
 	if err := testfake.CheckHTML(b); err != nil || strings.Contains(b, "</code>") {
 		t.Fatalf("%v: %q", err, b)
 	}
@@ -683,5 +683,74 @@ func TestLegacyPlainTextFileIsConvertedToHTMLOnce(t *testing.T) {
 		if q2 := e2.Queue(); q2[0].Text != q[0].Text || e2.Snapshot()[0].LastMsg != "old &lt;b&gt; &amp; co" {
 			t.Fatalf("converted twice: %+v", q2)
 		}
+	}
+}
+
+func TestBriefWhileRecovering(t *testing.T) {
+	t0 := time.Date(2026, 11, 4, 19, 56, 0, 0, time.Local)
+	refused := checks.Result{Status: checks.FAIL, Value: "connection refused", Detail: "connection refused"}
+	good := checks.Result{Status: checks.OK, Value: "HTTP 200 in 3ms"}
+	line := func(e *Engine, i int) string {
+		t.Helper()
+		got := lastLine(Brief("h", e.Snapshot(), e.RecoverN(), time.Time{}, t0.Add(time.Duration(i)*time.Minute)))
+		t.Log(got)
+		return got
+	}
+	nas := fake{"nas", "http"}
+
+	e := NewEngine(1, 2)
+	feed(e, nas, t0, refused)
+	if got, want := line(e, 0), "❌ <b>nas</b>: connection refused, down since 19:56"; got != want {
+		t.Fatalf("still failing: got %q, want %q", got, want)
+	}
+	e.Observe(nas, good, t0.Add(time.Minute))
+	if got, want := line(e, 1), "❌ <b>nas</b>: answering again (1 of 2 good tries), down since 19:56"; got != want {
+		t.Fatalf("recovering: got %q, want %q", got, want)
+	}
+	if out := Table(e.Snapshot(), e.RecoverN(), time.Time{}, t0.Add(time.Minute)); !strings.Contains(out, "HTTP 200 in 3ms (answering again, 1 of 2 good tries)") {
+		t.Fatalf("table: %s", out)
+	}
+	// a result without a verdict keeps its own wording, not the hint
+	e.Observe(nas, checks.Result{Status: checks.UNKNOWN, Value: "first value in 1 min"}, t0.Add(2*time.Minute))
+	if got, want := line(e, 2), "❌ <b>nas</b>: down since 19:56, first value in 1 min"; got != want {
+		t.Fatalf("no verdict: got %q, want %q", got, want)
+	}
+	e.Observe(nas, good, t0.Add(3*time.Minute))
+	if got, want := line(e, 3), "✅ <b>nas</b>: HTTP 200 in 3ms"; got != want {
+		t.Fatalf("recovered: got %q, want %q", got, want)
+	}
+
+	// failing again after one good try: the hint goes and the file is written at once
+	e = NewEngine(1, 2)
+	feed(e, nas, t0, refused, good)
+	e.dirty = false
+	e.Observe(nas, refused, t0.Add(2*time.Minute))
+	if got, want := line(e, 2), "❌ <b>nas</b>: connection refused, down since 19:56"; got != want || !e.dirty {
+		t.Fatalf("broken recovery: got %q, want %q, dirty %v", got, want, e.dirty)
+	}
+	// a reload lowers RECOVER_AFTER below the good tries so far
+	e = NewEngine(1, 3)
+	feed(e, nas, t0, refused, good, good)
+	e.Configure(1, 2)
+	if got, want := line(e, 2), "❌ <b>nas</b>: answering again (back on the next good try), down since 19:56"; got != want {
+		t.Fatalf("lowered: got %q, want %q", got, want)
+	}
+
+	// a machine check is ok again, not answering
+	e = NewEngine(1, 3)
+	feed(e, fake{"disk", "disk"}, t0, bad, ok)
+	if got, want := line(e, 1), "❌ <b>disk</b>: ok again (1 of 3 good tries), down since 19:56"; got != want {
+		t.Fatalf("machine: got %q, want %q", got, want)
+	}
+
+	// RECOVER_AFTER=1: the first good result recovers, there is no in-between
+	e = NewEngine(1, 1)
+	feed(e, nas, t0, refused, good)
+	if got, want := line(e, 1), "✅ <b>nas</b>: HTTP 200 in 3ms"; got != want {
+		t.Fatalf("recover after 1: got %q, want %q", got, want)
+	}
+	// without a known RECOVER_AFTER there is no hint
+	if got, _ := Recovering(Entry{Reported: checks.FAIL, OKs: 1, Type: "http"}, 0); got != "" {
+		t.Fatalf("no threshold: %q", got)
 	}
 }

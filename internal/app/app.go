@@ -625,7 +625,7 @@ func (a *App) Poll(ctx context.Context) {
 			}
 			if now := a.Now(); cmd == "/status" && now.Sub(lastStatus) >= statusEvery {
 				lastStatus = now
-				for _, part := range splitLines(state.Brief(a.Host, a.Eng.Snapshot(), a.Eng.Started, a.Now())) {
+				for _, part := range splitLines(state.Brief(a.Host, a.Eng.Snapshot(), a.Eng.RecoverN(), a.Eng.Started, a.Now())) {
 					if err := a.sendN(ctx, part, true); err != nil {
 						if ctx.Err() == nil {
 							a.Log.Printf("warning: /status reply failed: %v", err)

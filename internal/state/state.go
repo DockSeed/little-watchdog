@@ -292,8 +292,9 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	}
 	defer func() {
 		switch {
-		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue:
-			e.dirty = true // a verdict after none shows at once
+		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue ||
+			en.Reported == checks.FAIL && oks0 > 0 && en.OKs == 0:
+			e.dirty = true // a verdict after none, or a broken recovery, shows at once
 		case en.Fails != fails0 || en.OKs != oks0 || en.NoValue != nv0:
 			e.cdirty = true // a flapping sensor must not write every round
 		}
@@ -633,8 +634,33 @@ func ShownSince(e Entry, started time.Time) (t time.Time, clamped bool) {
 	return e.Since, false
 }
 
-// Table renders entries as an aligned text table; started is the daemon start.
-func Table(es []Entry, started, now time.Time) string {
+// Recovering is the hint for a reported FAIL that has good results again but not yet
+// recoverAfter of them in a row: "answering again" (a machine check: "ok again") and
+// "1 of 2 good tries". Both are empty otherwise.
+func Recovering(en Entry, recoverAfter int) (again, progress string) {
+	if en.Reported != checks.FAIL || en.OKs <= 0 || recoverAfter <= 0 {
+		return "", ""
+	}
+	again = "ok again"
+	if isService(en.Type) {
+		again = "answering again"
+	}
+	if en.OKs >= recoverAfter { // RECOVER_AFTER was lowered by a reload
+		return again, "back on the next good try"
+	}
+	return again, fmt.Sprintf("%d of %d good tries", en.OKs, recoverAfter)
+}
+
+// RecoverN is the current RECOVER_AFTER (it changes on a config reload).
+func (e *Engine) RecoverN() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.RecoverAfter
+}
+
+// Table renders entries as an aligned text table; started is the daemon start,
+// recoverAfter the RECOVER_AFTER for the recovery hint (0 = no hint).
+func Table(es []Entry, recoverAfter int, started, now time.Time) string {
 	var sb strings.Builder
 	tw := tabwriter.NewWriter(&sb, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tTYPE\tSTATE\tSINCE\tVALUE")
@@ -646,6 +672,8 @@ func Table(es []Entry, started, now time.Time) string {
 		val := checks.Sanitize(en.Value)
 		if en.NoValue && en.Reported != checks.UNKNOWN {
 			val += " (no verdict yet)"
+		} else if again, n := Recovering(en, recoverAfter); again != "" {
+			val += " (" + again + ", " + n + ")"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", checks.Sanitize(en.Name), checks.Clean(en.Type), checks.Clean(string(en.Reported)), since, val)
 	}
@@ -676,8 +704,9 @@ func Rank(list []string, t string) int {
 }
 
 // Brief renders entries for the Telegram /status reply (Telegram HTML): a bold summary line, then the
-// machine's own checks and the services under a heading each. started is the daemon start.
-func Brief(host string, es []Entry, started, now time.Time) string {
+// machine's own checks and the services under a heading each. started is the daemon start,
+// recoverAfter the RECOVER_AFTER for the recovery hint (0 = no hint).
+func Brief(host string, es []Entry, recoverAfter int, started, now time.Time) string {
 	if len(es) == 0 {
 		return telegram.Head(host, "no checks are set up.")
 	}
@@ -713,14 +742,14 @@ func Brief(host string, es []Entry, started, now time.Time) string {
 		}
 		sb.WriteString("<b>" + g.head + "</b>\n")
 		for _, en := range g.es {
-			sb.WriteString(briefLine(en, started, now) + "\n")
+			sb.WriteString(briefLine(en, recoverAfter, started, now) + "\n")
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
 // briefLine is "MARK name: value" (Telegram HTML) with the state added only where it is not plain ok.
-func briefLine(en Entry, started, now time.Time) string {
+func briefLine(en Entry, recoverAfter int, started, now time.Time) string {
 	name, val := telegram.B(checks.Sanitize(en.Name)), telegram.Esc(checks.Sanitize(en.Value))
 	with := func(state string) string { // value first; its own brackets stay single
 		if val == "" {
@@ -736,6 +765,9 @@ func briefLine(en Entry, started, now time.Time) string {
 		}
 		if en.NoValue && val != "" { // no verdict: state first
 			return "❌ " + name + ": " + state + ", " + val
+		}
+		if again, n := Recovering(en, recoverAfter); again != "" { // short: no good value
+			return "❌ " + name + ": " + again + " (" + n + "), " + state
 		}
 		return "❌ " + name + ": " + with(state)
 	case checks.UNKNOWN:

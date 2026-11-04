@@ -156,15 +156,6 @@ func (m *model) size() (int, int) {
 	return m.a.Size()
 }
 
-// StatusLines renders state entries as table rows cut to width w.
-func StatusLines(es []state.Entry, now time.Time, w int) []string {
-	var out []string
-	for _, l := range strings.Split(strings.TrimRight(state.Table(es, time.Time{}, now), "\n"), "\n") {
-		out = append(out, fit(l, w))
-	}
-	return out
-}
-
 var serviceTypes = state.ServiceTypes
 var hostTypes = state.MachineTypes
 

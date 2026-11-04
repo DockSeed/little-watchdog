@@ -24,6 +24,9 @@
   sensor read error) as freshly OK: "ok before the restart at 20:56, first
   value in 1 min", or "ok at 21:16, ..." after a config change. A failing check
   reads "down since 19:56, first value in 1 min".
+- /status shows a failed check that answers again but is not yet back as
+  "answering again (1 of 2 good tries), down since 19:56" (RECOVER_AFTER), not
+  the old error. `little-wd status` adds "(answering again, 1 of 2 good tries)".
 
 ### Packaging and docs
 

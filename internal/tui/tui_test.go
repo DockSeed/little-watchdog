@@ -997,19 +997,6 @@ func TestStatusScreenStripsControlCharacters(t *testing.T) {
 	r.finish()
 }
 
-func TestStatusLines80(t *testing.T) {
-	sf := writeState(t, ent{"http", "a", "FAIL", strings.Repeat("v", 120), 1, time.Time{}, time.Time{}})
-	es, err := state.ReadFile(sf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range StatusLines(es, time.Now(), 80) {
-		if len([]rune(l)) > 80 {
-			t.Fatalf("line too wide: %q", l)
-		}
-	}
-}
-
 func skipRoot(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file modes")

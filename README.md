@@ -4,6 +4,7 @@ Watches web pages, ports, hosts and its own machine, and tells you on Telegram
 when something goes down or comes back. A dead-man's-switch tells you when the
 watchdog itself stops. One static binary, about 10 MB of RAM (measured with a
 handful of checks, 15 MB with 40), no web interface, no open port. Linux with systemd. For homelabs, not for critical infrastructure.
+Unofficial; not affiliated with Telegram or Healthchecks.io.
 
 ```text
  little-wd  › Status                                          homelab  1 FAIL  

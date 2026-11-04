@@ -12,3 +12,4 @@ Needs systemd. Remove with: sudo ./install.sh --uninstall   (add --purge to
 delete the config as well). Look first at what it would do: ./install.sh --dry-run
 
 Documentation: https://github.com/DockSeed/little-watchdog
+Licence: MIT (LICENSE); the Go runtime inside little-wd: BSD-3-Clause (LICENSE.go).

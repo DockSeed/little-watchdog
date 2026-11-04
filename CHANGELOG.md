@@ -25,6 +25,15 @@
   value in 1 min", or "ok at 21:16, ..." after a config change. A failing check
   reads "down since 19:56, first value in 1 min".
 
+### Packaging and docs
+
+- The .deb and the .tar.gz include the licence of the Go runtime built into
+  little-wd (BSD-3-Clause) as LICENSE.go.
+- The key fingerprint is in SECURITY.md, allowed_signers, docs/setup.md and
+  the release notes; the link to an outside website is gone.
+- README states that the project is not affiliated with Telegram or
+  Healthchecks.io.
+
 ## [0.2.0] - 2026-11-03
 
 ### Upgrade note

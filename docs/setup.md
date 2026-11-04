@@ -14,8 +14,9 @@ wget -q --show-progress $base/releases/download/v$v/$deb $base/releases/download
   $base/releases/download/v$v/SHA256SUMS.sig $base/raw/v$v/allowed_signers
 ```
 
-Check it. Both lines must say OK or Good; compare the key fingerprint with
-https://dockseed.de:
+Check it. Both lines must say OK or Good; the key fingerprint must be
+`SHA256:CMUY2ymSviJh+qEqswCASwZfhcosZc9kMfzcWAjuHEs`, as on the release page.
+This catches a changed download, not a takeover of the whole GitHub account:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS

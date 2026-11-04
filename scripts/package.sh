@@ -16,6 +16,9 @@ umask 022
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 date_rfc=$(date -u -R -d "@$SOURCE_DATE_EPOCH")
+# the binary links the Go standard library (BSD-3-Clause): its licence goes along
+golicense=$(go env GOROOT)/LICENSE
+[ -f "$golicense" ] || { echo "package.sh: $golicense not found" >&2; exit 1; }
 
 fix() { # tree: fixed modes and times
 	find "$1" -type d -exec chmod 0755 {} +
@@ -35,6 +38,7 @@ deb() { # debarch binary-suffix
 	install -m 0644 contrib/little-watchdog.env.example "$doc/examples/little-watchdog.env.example"
 	install -m 0644 README.md "$doc/README.md"
 	install -m 0644 packaging/debian/copyright "$doc/copyright"
+	install -m 0644 "$golicense" "$doc/LICENSE.go"
 	{
 		echo "little-watchdog ($version) unstable; urgency=medium"
 		echo
@@ -74,6 +78,7 @@ tarball() { # binary-suffix
 	install -m 0755 packaging/tarball/install.sh "$root/install.sh"
 	install -m 0644 packaging/tarball/README.txt "$root/README.txt"
 	install -m 0644 LICENSE "$root/LICENSE"
+	install -m 0644 "$golicense" "$root/LICENSE.go"
 	# the four files by name: a stray local file in contrib/ must never end up in the archive
 	local f
 	for f in little-watchdog.service little-watchdog.env.example sysusers.d/little-wd.conf tmpfiles.d/little-wd.conf; do

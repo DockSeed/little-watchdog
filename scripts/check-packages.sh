@@ -32,6 +32,7 @@ for deb in "$out"/little-watchdog_*.deb; do
 	want "$list" usr/lib/tmpfiles.d/little-wd.conf "-rw-r--r-- root/root"
 	want "$list" usr/share/doc/little-watchdog/copyright "-rw-r--r-- root/root"
 	want "$list" usr/share/doc/little-watchdog/changelog.gz "-rw-r--r-- root/root"
+	want "$list" usr/share/doc/little-watchdog/LICENSE.go "-rw-r--r-- root/root"
 	if grep -qvE '^[-dl][rwx-]{9} root/root ' <<<"$list"; then fail "a file is not owned by root"; fi
 	dpkg-deb -e "$deb" "$work/ctl"
 	for s in postinst prerm postrm; do
@@ -48,6 +49,7 @@ for t in "$out"/little-watchdog_*.tar.gz; do
 	list=$(tar tvzf "$t")
 	grep -q -- '-rwxr-xr-x 0/0 .*/little-wd$' <<<"$list" || fail "binary mode in $t"
 	grep -q -- '-rwxr-xr-x 0/0 .*/install.sh$' <<<"$list" || fail "install.sh mode in $t"
+	grep -q -- '-rw-r--r-- 0/0 .*/LICENSE.go$' <<<"$list" || fail "LICENSE.go missing in $t"
 	tar xzf "$t" -C "$work"
 	d=$work/$(basename "$t" .tar.gz)
 	sh -n "$d/install.sh" || fail "install.sh syntax"

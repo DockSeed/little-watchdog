@@ -28,5 +28,6 @@ If the token leaks, revoke it with @BotFather.
 
 Releases are built reproducibly. `SHA256SUMS` is signed with
 `ssh-keygen -Y sign -n file` after an independent rebuild gave the same hashes.
-The key is listed in `allowed_signers`. If it is lost or leaks, we announce a
-new key here and on https://dockseed.de.
+The key is listed in `allowed_signers`, fingerprint
+`SHA256:CMUY2ymSviJh+qEqswCASwZfhcosZc9kMfzcWAjuHEs`; the release notes name it
+too. If it is lost or leaks, we announce a new key here and in the release notes.

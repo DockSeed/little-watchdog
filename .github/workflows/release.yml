@@ -39,7 +39,7 @@ jobs:
       - name: Release notes from the changelog
         run: |
           scripts/release-notes.sh "${TAG#v}" > notes.md
-          printf '\n---\nThe signature `SHA256SUMS.sig` is added after an independent rebuild. Until it is there, treat this as unverified.\n' >> notes.md
+          printf '\n---\nThe signature `SHA256SUMS.sig` is added after an independent rebuild. Until it is there, treat this as unverified.\nSigning key: `SHA256:CMUY2ymSviJh+qEqswCASwZfhcosZc9kMfzcWAjuHEs`\n' >> notes.md
       - name: Docs name this version
         run: |
           grep -q "releases/download/$TAG/" README.md

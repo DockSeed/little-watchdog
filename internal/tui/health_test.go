@@ -131,7 +131,7 @@ func TestLinkingCountsAsSentMessage(t *testing.T) {
 	defer srv.Close()
 	p := aliveCfg(t, "TELEGRAM_API_URL="+srv.URL+"\n")
 	r := start(t, &App{Path: p, PollWindow: time.Minute, Size: sized})
-	r.send("jjjj\r")
+	r.send("jjjjj\r")
 	r.wait("Bot token")
 	r.send("1:a\r")
 	r.wait("waiting until ")

@@ -17,7 +17,7 @@ func TestTelegramUsesTheConfigsAPIURLAndMarksPairing(t *testing.T) {
 	defer srv.Close()
 	p := newCfg(t, "TELEGRAM_API_URL="+srv.URL+"\n")
 	r := start(t, &App{Path: p, PollWindow: time.Minute}) // no App.APIURL: the URL must come from the file
-	r.send("jjjj\r")
+	r.send("jjjjj\r")
 	r.wait("Bot token")
 	r.send("1:a\r")
 	r.wait("waiting until ")

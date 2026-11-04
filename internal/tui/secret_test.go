@@ -31,7 +31,7 @@ func TestSecretsNeverFullyShown(t *testing.T) {
 	url := web.URL + "/" + fakeKey
 	r := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN="+fakeTok+"\nTELEGRAM_CHAT_ID=5\nDEADMAN_URL="+url+"\n"), Size: sized})
 	r.wait("Dead-man switch")
-	r.send("jjjj") // Telegram: the hint names the token
+	r.send("jjjjj") // Telegram: the hint names the token
 	r.wait("Linked: bot 123456789, …x7Q2, chat 5")
 	r.send("j")
 	r.wait("Pinging http://")
@@ -74,9 +74,9 @@ func TestEmptyEnterKeepsTheDeadmanURL(t *testing.T) {
 	url := web.URL + "/" + fakeKey
 	p := newCfg(t, "TELEGRAM_TOKEN=1:a\nDEADMAN_URL="+url+"\n")
 	r := start(t, &App{Path: p, Size: sized})
-	r.send("jjjjj\r")
+	r.send("jjjjjj\r")
 	r.wait("[ Save ]")
-	r.send("\r")
+	r.send("\r\r")
 	r.wait("Saved")
 	if !strings.Contains(read(t, p), "DEADMAN_URL="+url+"\n") {
 		t.Fatal(read(t, p))

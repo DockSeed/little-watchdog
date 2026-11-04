@@ -152,3 +152,34 @@ func TestSaveRefusesAFileChangedMeanwhile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The keys little-wd's Settings, Dead-man and temperature forms write survive a save and parse back.
+func TestSettingsRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "lw.env")
+	os.WriteFile(p, []byte("# keep\nINTERVAL=60s\nTEMP_SENSOR=/sys/class/thermal/thermal_zone0/temp\n"), 0o600)
+	f, err := OpenFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"INTERVAL": "2m", "FAIL_AFTER": "5", "RECOVER_AFTER": "4", "TIMEOUT": "30s", "DEADMAN_EVERY": "5m"} {
+		f.Put(k, v)
+	}
+	f.Set("TEMP_SENSOR", "")
+	if err := f.Save(); err != nil {
+		t.Fatal(err)
+	}
+	g, err := OpenFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Text() != f.Text() || !strings.HasPrefix(g.Text(), "# keep\nINTERVAL=2m\n") || g.Has("TEMP_SENSOR") {
+		t.Fatalf("%q", g.Text())
+	}
+	c, err := Parse(strings.NewReader(g.Text()), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Interval != 2*time.Minute || c.FailAfter != 5 || c.RecoverAfter != 4 || c.Timeout != 30*time.Second || c.DeadmanEvery != 5*time.Minute || c.TempSensor != "" {
+		t.Fatalf("%+v", c)
+	}
+}

@@ -61,7 +61,8 @@ machine or the watchdog died, [Healthchecks.io](https://healthchecks.io) alarms
 you. It has a free plan and can also be self-hosted.
 
 1. Create an account and a check.
-2. Set **Period** to 2 minutes and **Grace Time** to at least 4 minutes.
+2. Set **Period** to 2 minutes (the Every time under Dead-man switch in
+   `little-wd`) and **Grace Time** to at least twice that (4 minutes for 2m).
 3. Copy the ping URL (keep it secret) and paste it in `little-wd` under
    **Dead-man switch**.
 4. In Healthchecks, set up a notification other than Telegram, for example

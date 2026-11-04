@@ -63,7 +63,7 @@ const (
 	modeExplore       // config missing or not readable
 )
 
-var menuItems = []string{"Status", "Add check", "Remove check", "System checks", "Telegram", "Dead-man switch", "Quit"}
+var menuItems = []string{"Status", "Add check", "Remove check", "System checks", "Settings", "Telegram", "Dead-man switch", "Quit"}
 
 func locked(item string, md mode) bool { return md != modeFull && item != "Status" && item != "Quit" }
 
@@ -80,7 +80,7 @@ type form struct {
 	kind   int
 	vals   []string
 	pos    []int // caret per field, in runes; atEnd or more means the end
-	secret bool  // input is masked; Ctrl-R shows it
+	secret bool  // field 0 is masked; Ctrl-R shows it
 	reveal bool
 	cur    string // fingerprint of the value in use, shown under the fields
 	note   string
@@ -390,6 +390,8 @@ func (m *model) menuKey(k Key) {
 			m.removeList()
 		case "System checks":
 			m.sysList()
+		case "Settings":
+			m.settingsForm()
 		case "Telegram":
 			m.telegramForm()
 		case "Dead-man switch":
@@ -508,7 +510,14 @@ func (m *model) formKey(k Key) {
 }
 
 func (m *model) newForm(title string, kinds []kindSpec, btns []string, submit func(*form) string) *form {
-	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, 3), pos: []int{atEnd, atEnd, atEnd}}
+	n := 0
+	for _, k := range kinds {
+		n = max(n, len(k.labels))
+	}
+	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, n), pos: make([]int, n)}
+	for i := range f.pos {
+		f.pos[i] = atEnd
+	}
 	f.idx = f.radio()
 	m.form, m.dk, m.scr, m.flow = f, dForm, scBlank, title
 	return f
@@ -683,7 +692,12 @@ func (m *model) telegramForm() {
 }
 
 func (m *model) deadmanForm() {
-	f := m.newForm("Dead-man switch", []kindSpec{{labels: []string{"URL"}, hints: []string{"Healthchecks ping URL (docs/setup.md)."}}},
+	ev := every(config.Defaults().DeadmanEvery)
+	if c := m.snap.cfg; c != nil {
+		ev = m.raw("DEADMAN_EVERY", every(c.DeadmanEvery))
+	}
+	f := m.newForm("Dead-man switch", []kindSpec{{labels: []string{"URL", "Every"},
+		hints: []string{"Healthchecks ping URL (docs/setup.md).", "Time between pings, for example 2m. At least 60s. Set Period in Healthchecks to the same."}}},
 		[]string{"Save", "Cancel"}, func(f *form) string {
 			url := strings.TrimSpace(f.vals[0])
 			switch {
@@ -694,6 +708,9 @@ func (m *model) deadmanForm() {
 			}
 			tmp := m.file.Clone()
 			tmp.Set("DEADMAN_URL", url)
+			if !putChanged(tmp, "DEADMAN_EVERY", f.vals[1], ev) {
+				return "Every: enter a time, for example 2m"
+			}
 			if _, err := config.Parse(strings.NewReader(tmp.Text()), false); err != nil {
 				return err.Error()
 			}
@@ -710,11 +727,62 @@ func (m *model) deadmanForm() {
 			return ""
 		})
 	f.secret = true
-	f.note = "Pinged once now, then every DEADMAN_EVERY."
+	f.vals[1] = ev
+	f.note = "Pinged once now, then at the time set under Every."
 	if c := m.snap.cfg; c != nil && c.DeadmanURL != "" {
 		f.kinds[0].hints[0] = "Healthchecks ping URL (docs/setup.md). Empty keeps the current URL, type off to switch it off."
 		f.cur = "current: " + checks.URLFP(c.DeadmanURL) + " — leave empty to keep it, type off to switch it off"
 	}
+}
+
+// settingsForm edits how often checks run and when alarms and all-clears go out.
+func (m *model) settingsForm() {
+	if m.snap.cfg == nil {
+		m.flow, m.scr, m.dk, m.lines = "Settings", scBlank, dResult, []string{"Config is invalid: " + m.snap.cfgErr}
+		return
+	}
+	c := m.snap.cfg
+	keys := []string{"INTERVAL", "FAIL_AFTER", "RECOVER_AFTER", "TIMEOUT"}
+	vals := []string{m.raw("INTERVAL", every(c.Interval)), m.raw("FAIL_AFTER", fmt.Sprint(c.FailAfter)),
+		m.raw("RECOVER_AFTER", fmt.Sprint(c.RecoverAfter)), m.raw("TIMEOUT", every(c.Timeout))}
+	spec := kindSpec{labels: []string{"Check every", "Alarm after", "All-clear after", "Timeout per check"}, hints: []string{
+		"How often every check runs, for example 60s or 5m. At least 10s, at most CPU_WINDOW (15m).",
+		"Failed rounds in a row, then a Telegram alarm. 3 = three failed rounds in a row.",
+		"Good rounds in a row after an alarm, then the all-clear. 2 = two good rounds in a row.",
+		"A check that takes longer counts as failed, for example 10s. At most 10m.",
+	}}
+	f := m.newForm("Settings", []kindSpec{spec}, []string{"Save", "Cancel"}, func(f *form) string {
+		tmp := m.file.Clone()
+		for i, k := range keys {
+			if !putChanged(tmp, k, f.vals[i], vals[i]) {
+				return spec.labels[i] + ": enter a value"
+			}
+		}
+		if _, err := config.Parse(strings.NewReader(tmp.Text()), false); err != nil {
+			return err.Error()
+		}
+		m.commit(tmp, "Settings saved to "+tmp.Path+".")
+		return ""
+	})
+	copy(f.vals, vals)
+	f.note = "New values apply from the next round."
+}
+
+// putChanged writes key only if v (trimmed) differs from what the form showed; false if v is empty.
+func putChanged(f *config.File, key, v, cur string) bool {
+	v = strings.TrimSpace(v)
+	if v != cur {
+		f.Put(key, v)
+	}
+	return v != ""
+}
+
+// raw is key as written in the config file, else def: the form shows what the file says.
+func (m *model) raw(key, def string) string {
+	if v, ok := m.file.Get(key); ok && v != "" {
+		return v
+	}
+	return def
 }
 
 func needGroup() string { return config.NeedGroupText() }

@@ -305,6 +305,8 @@ func (m *model) menuVal(it string) (string, sty) {
 			return fmt.Sprintf("%d on", on), sBg
 		}
 		return fmt.Sprintf("%d on, %d off", on, len(rows)-on), sBg
+	case "Settings":
+		return fmt.Sprintf("every %s, alarm after %d, all-clear after %d", every(c.Interval), c.FailAfter, c.RecoverAfter), sBg
 	case "Telegram":
 		return m.telegramValue(c, time.Now())
 	case "Dead-man switch":
@@ -366,8 +368,9 @@ var about = map[string]string{
 	"Add check":       "Watch a website, a TCP port or a host. It is checked once before it is saved.",
 	"Remove check":    "Pick a check and remove it from the config.",
 	"System checks":   "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
+	"Settings":        "How often the checks run, and after how many rounds an alarm or all-clear goes out.",
 	"Telegram":        "Set up the bot token and pair your chat with a one-time code.",
-	"Dead-man switch": "Healthchecks-style URL pinged every DEADMAN_EVERY, so you notice if little-wd dies.",
+	"Dead-man switch": "Healthchecks-style URL pinged at a set time, so you notice if little-wd dies.",
 	"Quit":            "Leave the program.",
 }
 
@@ -1025,13 +1028,17 @@ func (m *model) drawForm(fr *frame) (string, []kv) {
 		}
 		rows = append(rows, r, line("", sDlg))
 	}
-	fw := max(w-4-10, 1)
+	lw := 10
+	for _, l := range ks.labels {
+		lw = max(lw, len(l)+2)
+	}
+	fw := max(w-4-lw, 1)
 	for i, l := range ks.labels {
 		v := f.vals[i]
-		if f.secret && !f.reveal {
+		if f.secret && i == 0 && !f.reveal {
 			v = strings.Repeat("*", len([]rune(v)))
 		}
-		r := drow{segs: []seg{{fmt.Sprintf("%-10s", l), sDdim}}}
+		r := drow{segs: []seg{{fmt.Sprintf("%-*s", lw, l), sDdim}}}
 		if class == 0 && fi == i {
 			r.segs[0].st = sDbold
 			pre, cur, post := fieldView(v, fw, f.pos[i], true)
@@ -1152,6 +1159,7 @@ func (m *model) drawHelp(fr *frame) {
 		line("result yet. back 1/2 = 1 of 2 good tries after a FAIL.", sDlg),
 		line("Checked: time of the last result. Since: when that state", sDlg),
 		line("began, at most since the daemon start.", sDlg),
+		line("Settings: check interval, alarm and all-clear rounds, timeout.", sDlg),
 		line("Changes apply after you confirm, within one interval.", sDlg),
 	}
 	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only

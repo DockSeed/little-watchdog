@@ -127,14 +127,19 @@ func (m *model) sysForm(s sysCheck) {
 		spec = kindSpec{labels: []string{"Percent"}, hints: []string{"Alarm when less than this percent is free on any watched disk (0 = off)."}}
 		keys, vals = []string{"DISK_MIN_FREE_PCT"}, []string{val(c.DiskMinFree, d.DiskMinFree)}
 	default:
-		spec = kindSpec{labels: []string{"Degrees C"}, hints: []string{"Alarm when the temperature is above this (0 = off)."}}
-		keys, vals = []string{"TEMP_MAX_C"}, []string{val(c.TempMaxC, d.TempMaxC)}
+		spec = kindSpec{labels: []string{"Degrees C", "Sensor"}, hints: []string{"Alarm when the temperature is above this (0 = off).",
+			"Optional: a temperature file under /sys. Empty = the hottest sensor."}}
+		keys, vals = []string{"TEMP_MAX_C", "TEMP_SENSOR"}, []string{val(c.TempMaxC, d.TempMaxC), c.TempSensor}
 	}
 	spec.name = s.name
 	f := m.newForm("System checks: "+s.name, []kindSpec{spec}, []string{"Save", "Cancel"}, func(f *form) string {
 		tmp := m.file.Clone()
 		for i, k := range keys {
 			v := strings.TrimSpace(f.vals[i])
+			if k == "TEMP_SENSOR" {
+				tmp.Set(k, v) // empty = the hottest sensor
+				continue
+			}
 			if v == "" {
 				return spec.labels[i] + ": enter a value"
 			}

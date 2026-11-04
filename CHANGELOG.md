@@ -4,6 +4,12 @@
 
 ### little-wd
 
+- New menu item Settings: check interval, alarm after, all-clear after and
+  timeout per check, each with a short explanation. The menu shows a summary
+  ("every 1m, alarm after 3, all-clear after 2").
+- Dead-man switch: the time between pings (DEADMAN_EVERY) can be set below the
+  URL. System checks, temperature: an optional sensor file (TEMP_SENSOR).
+- An invalid value shows the config parser's error and is not saved.
 - Status, Remove check and System checks have named columns (State, Check,
   Type, ...) and one indent under each section heading.
 - Status: "Since" is the clock time the state began (a date if older than
@@ -13,6 +19,8 @@
   was checked while the daemon was down. Same in `little-wd status`, which
   now prints clock times instead of "29 s ago".
 - Esc in the main menu asks before quitting; Q still quits at once.
+- Dead-man switch: Enter on the URL moves to Every, a second Enter saves;
+  saving pings the URL once, also when only Every changed.
 - A value without a verdict yet (CPU warm-up, a sensor read error) is dimmed;
   `little-wd status` adds "(no verdict yet)".
 - The help explains [OK], [FAIL], [2/3], [?], Checked and "back 1/2".

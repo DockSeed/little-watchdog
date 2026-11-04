@@ -154,3 +154,14 @@ func (f *File) Save() error {
 var ErrChanged = errors.New("the config file changed on disk since it was opened; nothing was saved, leave and reopen little-wd")
 
 func (f *File) Has(key string) bool { return f.find(key) >= 0 }
+
+// Get is the value of the last line for key, as written in the file.
+func (f *File) Get(key string) (string, bool) {
+	v, ok := "", false
+	for _, l := range f.lines {
+		if k, val, found := strings.Cut(strings.TrimSpace(l), "="); found && !strings.HasPrefix(k, "#") && strings.TrimSpace(k) == key {
+			v, ok = strings.TrimSpace(val), true
+		}
+	}
+	return v, ok
+}

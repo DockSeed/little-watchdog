@@ -25,6 +25,11 @@
   `little-wd status` adds "(no verdict yet)".
 - The help explains [OK], [FAIL], [2/3], [?], Checked and "back 1/2".
 - Times from an earlier year show the year, also in Telegram.
+- Status on a terminal of 120 columns or more gets a side panel: the check
+  under the cursor (type, target, state and since, result, Telegram) and the
+  machine right now (load, stalled time from PSI, uptime from /proc, read every
+  5 s; little-wd's own RAM and disk writes). Below 120 columns the screen is
+  unchanged.
 
 ### Telegram messages
 

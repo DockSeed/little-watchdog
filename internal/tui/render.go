@@ -402,7 +402,7 @@ func (m *model) render(out io.Writer) {
 		hint, keys = m.drawMenu(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
 	case scStatus:
 		crumb = "Status"
-		hint, keys = m.drawStatus(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "details"}, {"Esc", "menu"}, {"?", "help"}}
+		hint, keys = m.drawStatusPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "details"}, {"Esc", "menu"}, {"?", "help"}}
 	case scRemove:
 		crumb = "Remove check"
 		hint, keys = m.drawRemove(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "remove"}, {"Esc", "menu"}, {"?", "help"}}
@@ -600,18 +600,11 @@ func (m *model) drawMenu(fr *frame) string {
 // footLine is what the daemon costs, from its last state write.
 func footLine(f *state.Footprint) string {
 	up := f.At.Sub(f.Started)
-	s := fmt.Sprintf("little-wd: %d MB RAM", max((f.RSSKB+512)/1024, 1))
+	s := "little-wd: " + ramText(f) + " RAM"
 	if up >= time.Minute {
 		s += fmt.Sprintf(" · %.1f%% CPU", f.CPUSec/up.Seconds()*100)
 	}
-	if up < 10*time.Minute {
-		s += fmt.Sprintf(" · %s since start", plural(f.Writes, "disk write", "disk writes"))
-	} else if r := float64(f.Writes) / up.Hours(); r < 10 {
-		s += fmt.Sprintf(" · %.1f disk writes/h", r)
-	} else {
-		s += fmt.Sprintf(" · %.0f disk writes/h", r)
-	}
-	return s + " · up " + upText(up)
+	return s + " · " + writesText(f, "disk write", "disk writes") + " · up " + upText(up)
 }
 
 func upText(d time.Duration) string {
@@ -1164,6 +1157,10 @@ func (m *model) drawHelp(fr *frame) {
 	}
 	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only
 		rows = append(rows, text...)
+		pl := wrapRows("Status at 120+ columns: the right panel shows the selected check and this machine.", 62, sDlg)
+		if _, pw := panelSplit(fr.w, fr.iw); pw > 0 && len(rows)+len(pl)+4 <= fr.ih { // only where the panel exists
+			rows = append(rows, pl...)
+		}
 	}
 	rows = append(rows, line("", sDlg), fr.buttons([]string{"Close"}, 0))
 	fr.dialog("Keys", 66, rows, 1)

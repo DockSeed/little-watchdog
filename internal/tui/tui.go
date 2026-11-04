@@ -30,6 +30,7 @@ type App struct {
 	Winch      <-chan os.Signal
 	Tick       time.Duration
 	Getenv     func(string) string // default os.Getenv
+	Proc       string              // root of /proc for the Status side panel; "" = /proc
 }
 
 // screen is what is drawn behind the dialogs.
@@ -171,6 +172,8 @@ type model struct {
 	cf         *confirm
 	tg         *tgState
 	snap       snapshot
+	sys        sysInfo            // /proc as the side panel last read it
+	sysBuf     []byte             // reused for every /proc read
 	cancel     context.CancelFunc // set while background work runs
 	quit       bool
 	ev         chan func(*model)

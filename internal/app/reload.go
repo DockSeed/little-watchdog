@@ -120,26 +120,47 @@ func (a *App) apply(nc *config.Config) {
 	}
 	a.Eng.Retain(valid)
 	a.Eng.Configure(nc.FailAfter, nc.RecoverAfter)
+	a.stateMu.Lock()
+	defer a.stateMu.Unlock()
+	moved := false
+	if nc.StateFile != old.StateFile {
+		if moved = a.moveState(old.StateFile, nc.StateFile); !moved {
+			nc.StateFile = old.StateFile // the daemon keeps writing where it can
+		}
+	}
 	a.mu.Lock()
 	a.Cfg, a.Checks, a.TG, a.DM = nc, cs, tg, dm
 	a.mu.Unlock()
 	a.Log.Printf("config reloaded: %d checks, interval %s", len(cs), nc.Interval)
-	if nc.StateFile != old.StateFile {
-		a.moveState(old.StateFile, nc.StateFile)
+	if moved {
+		removeState(old.StateFile)
+	}
+}
+
+// removeState deletes an old state file and its heartbeat, but only regular files: a symlink
+// planted there is left alone.
+func removeState(p string) {
+	for _, f := range []string{p, p + state.BeatSuffix} {
+		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
+			os.Remove(f)
+		}
 	}
 }
 
 // moveState follows a switch between disk and RAM: the engine already holds the state, so it
-// is written to the new place at once (the UI reads there) and the old copy goes away. If the
-// new place cannot be written, the old copy stays and the next cycle tries again.
-func (a *App) moveState(from, to string) {
+// is written to the new place at once (the UI reads there). It reports whether that worked; if
+// not, the caller keeps the old place, so the daemon never ends up writing neither.
+func (a *App) moveState(from, to string) bool {
 	if err := a.Eng.Save(to); err != nil {
-		a.Log.Printf("warning: state file %s: %v (the old one stays at %s)", to, err, from)
-		return
+		hint := ""
+		if to == config.RAMStateFile() {
+			hint = "; update the package: the unit has no RuntimeDirectory"
+		}
+		a.Log.Printf("warning: state file %s cannot be written: %v (the state stays at %s%s)", to, err, from, hint)
+		return false
 	}
 	a.Log.Printf("state file moved from %s to %s", from, to)
-	os.Remove(from)
-	os.Remove(from + state.BeatSuffix)
+	return true
 }
 
 // sameSetup reports whether c would behave exactly like its predecessor under nc.

@@ -353,3 +353,80 @@ func TestReloadMovesStateBetweenDiskAndRAM(t *testing.T) {
 		t.Fatalf("RAM copy stays: %v", err)
 	}
 }
+
+// RAM mode switched on while the RAM directory cannot be written (unit without
+// RuntimeDirectory): the daemon keeps the old place, still beats there and says why.
+func TestReloadKeepsOldStateFileWhenTheNewPlaceIsNotWritable(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNTIME_DIRECTORY", filepath.Join(blocker, "run")) // cannot be created below a file
+	r := newRL(t, tok, "TCP_A=127.0.0.1:1")
+	ctx := context.Background()
+	r.a.Cycle(ctx)
+	r.write(r.body(tok, "TCP_A=127.0.0.1:1", "STATE_IN_RAM=yes"))
+	r.a.Cycle(ctx)
+	if got := r.a.Cfg.StateFile; got != r.state {
+		t.Fatalf("daemon writes to %s, want the old %s", got, r.state)
+	}
+	if !strings.Contains(r.buf.String(), "RuntimeDirectory") {
+		t.Fatalf("no hint in log: %s", r.buf.String())
+	}
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(r.state+state.BeatSuffix, old, old)
+	r.a.Cycle(ctx)
+	if _, stale := state.Stale(r.state, time.Minute, time.Now()); stale {
+		t.Fatal("heartbeat froze")
+	}
+}
+
+// Start-up with STATE_IN_RAM=yes and an unwritable RAM directory uses the disk path.
+func TestStartFallsBackToDiskWhenRAMIsNotWritable(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, nil, 0o600)
+	t.Setenv("RUNTIME_DIRECTORY", filepath.Join(blocker, "run"))
+	r := newRL(t, tok, "TCP_A=127.0.0.1:1", "STATE_IN_RAM=yes")
+	r.a.Cfg.DiskState = r.state
+	r.a.fallbackToDisk()
+	if r.a.Cfg.StateFile != r.state || !strings.Contains(r.buf.String(), "RuntimeDirectory") {
+		t.Fatalf("%s: %s", r.a.Cfg.StateFile, r.buf.String())
+	}
+}
+
+// A save from the sender goroutine must not bring the old state file back after a move.
+func TestMoveNeverRecreatesTheOldStateFile(t *testing.T) {
+	r := newRL(t, tok, "TCP_A=127.0.0.1:1")
+	a := r.a
+	a.Cycle(context.Background())
+	home, other := r.state, filepath.Join(t.TempDir(), "state.json")
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				a.saveState(true)
+				a.endCycle()
+			}
+		}
+	}()
+	for i := 0; i < 301; i++ {
+		nc := *a.Cfg
+		nc.StateFile = other
+		if i%2 == 1 {
+			nc.StateFile = home
+		}
+		a.apply(&nc)
+	}
+	// 301 moves end at "other" for an even count: the daemon now writes there, home must stay gone.
+	close(stop)
+	<-done
+	for _, p := range []string{home, home + state.BeatSuffix} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Fatalf("old place came back: %s (%v)", p, err)
+		}
+	}
+}

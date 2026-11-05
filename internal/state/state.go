@@ -262,6 +262,16 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	return nil
 }
 
+// Writable reports why the directory of path cannot take a new file; it leaves nothing behind.
+func Writable(path string) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".probe-*.tmp")
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return os.Remove(f.Name())
+}
+
 // StartedAt is the daemon start, corrected once the wall clock has jumped.
 func (e *Engine) StartedAt() time.Time {
 	e.mu.Lock()

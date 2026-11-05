@@ -76,6 +76,7 @@ type App struct {
 	Path string  // config file watched for changes; empty = no reload
 	sig  FileSig // stat of Path when it was last read
 
+	stateMu  sync.Mutex   // state writes and the move to another place never overlap
 	mu       sync.RWMutex // guards Cfg, Checks, TG, DM and notes against reload
 	redact   *RedactWriter
 	notes    []note                   // own notices waiting for Telegram
@@ -150,6 +151,21 @@ func (a *App) LoadState() {
 	}
 	if cfg.DeadmanURL == "" {
 		a.Eng.ClearDeadman()
+	}
+}
+
+// fallbackToDisk starts on the disk state file when STATE_IN_RAM=yes but the RAM directory
+// cannot be written (the installed unit has no RuntimeDirectory), instead of running blind.
+func (a *App) fallbackToDisk() {
+	cfg, _, _, _ := a.cur()
+	if !cfg.StateInRAM || cfg.DiskState == "" {
+		return
+	}
+	if err := state.Writable(cfg.StateFile); err != nil {
+		a.Log.Printf("warning: STATE_IN_RAM=yes but %v; update the package: the unit has no RuntimeDirectory. Using %s", err, cfg.DiskState)
+		a.mu.Lock()
+		a.Cfg.StateFile = cfg.DiskState
+		a.mu.Unlock()
 	}
 }
 
@@ -236,7 +252,9 @@ func (a *App) probe(ctx context.Context) error {
 }
 
 func (a *App) saveState(force bool) {
-	cfg, _, _, _ := a.cur()
+	a.stateMu.Lock()
+	defer a.stateMu.Unlock()
+	cfg, _, _, _ := a.cur() // read under stateMu: a move cannot swap the path in between
 	var err error
 	if force {
 		err = a.Eng.Save(cfg.StateFile)
@@ -249,12 +267,15 @@ func (a *App) saveState(force bool) {
 // endCycle marks a finished round: the heartbeat (the loop runs, whether or not
 // the state could be saved) and the time the dead-man switch looks at.
 func (a *App) endCycle() {
-	cfg, _, _, _ := a.cur()
 	a.Eng.FixStart()
 	a.tgMu.Lock()
 	a.lastCycle = a.Clk.Now()
 	a.tgMu.Unlock()
-	if e := state.Beat(cfg.StateFile, a.Now()); e != nil && a.debug {
+	a.stateMu.Lock()
+	cfg, _, _, _ := a.cur()
+	e := state.Beat(cfg.StateFile, a.Now())
+	a.stateMu.Unlock()
+	if e != nil && a.debug {
 		a.Log.Printf("debug: heartbeat: %v", e)
 	}
 }
@@ -432,6 +453,7 @@ func (a *App) sendChunk(ctx context.Context, q []state.Queued, txt []string) boo
 
 // Run is the daemon main loop; it returns when ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	a.fallbackToDisk()
 	a.LoadState()
 	a.tgMu.Lock()
 	a.lastCycle = a.Clk.Now() // the first round gets the same allowance as any other

@@ -40,6 +40,9 @@ type History struct {
 	End    int64             `json:"end"`
 	Checks map[string]string `json:"checks,omitempty"`
 	Host   map[string]string `json:"host,omitempty"`
+	// HostN is the number of samples in the open cell of a host series (only where it is more
+	// than one): after a restart inside the bucket the mean keeps its weight.
+	HostN map[string]int `json:"host_n,omitempty"`
 }
 
 type chCell struct {
@@ -54,24 +57,34 @@ type hCell struct {
 
 type hist struct {
 	end    int64
+	born   time.Time // when this process began (monotonic): tells a clock not yet set from a real step back
 	checks map[string][]chCell
 	host   map[string][]hCell
 }
 
 func newHist() *hist {
-	return &hist{checks: map[string][]chCell{}, host: map[string][]hCell{}}
+	return &hist{born: time.Now(), checks: map[string][]chCell{}, host: map[string][]hCell{}}
 }
 
 func bucketOf(t time.Time) int64 { return t.Unix() / int64(histStep/time.Second) }
 
-// advance moves the open bucket to b. A jump of the clock back by more than histBack
-// buckets drops the cells (they stand for a time that did not happen); a smaller one is
-// folded into the open bucket.
-func (h *hist) advance(b int64) {
+// histTrust is how long the daemon waits for a clock that is behind the saved history: a
+// board without a real-time clock starts in the past until NTP sets it.
+const histTrust = time.Hour
+
+// advance moves the open bucket to b and reports whether to record into it. A clock more than
+// histBack buckets behind the saved end records nothing (false) and keeps the cells: it is
+// probably not set yet. If it is still behind after histTrust, it was a real step back; then
+// the cells go (they stand for a time that did not happen). A smaller step back is folded
+// into the open bucket.
+func (h *hist) advance(b int64) bool {
 	switch {
 	case h.end == 0:
 		h.end = b
 	case b < h.end-histBack:
+		if time.Since(h.born) < histTrust {
+			return false
+		}
 		*h = *newHist()
 		h.end = b
 	case b > h.end:
@@ -84,6 +97,7 @@ func (h *hist) advance(b int64) {
 		}
 		h.end = b
 	}
+	return true
 }
 
 func grow[T any](c []T, gap int64) []T {
@@ -120,7 +134,9 @@ func (h *hist) addCheck(id string, st checks.Status, took time.Duration, now tim
 	if st != checks.OK && st != checks.FAIL {
 		return
 	}
-	h.advance(bucketOf(now))
+	if !h.advance(bucketOf(now)) {
+		return
+	}
 	c := h.openCheck(id)
 	if st == checks.FAIL {
 		c.fail = min(c.fail+1, math.MaxUint16)
@@ -134,7 +150,9 @@ func (h *hist) addHost(name string, v float64, now time.Time) {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return
 	}
-	h.advance(bucketOf(now))
+	if !h.advance(bucketOf(now)) {
+		return
+	}
 	c := h.openHost(name)
 	if c.n == 0 || v > c.peak {
 		c.peak = v
@@ -262,6 +280,12 @@ func (h *hist) encode() *History {
 			out.Host = map[string]string{}
 		}
 		out.Host[name] = encHost(c[max(len(c)-n, 0):])
+		if k := c[len(c)-1].n; k > 1 {
+			if out.HostN == nil {
+				out.HostN = map[string]int{}
+			}
+			out.HostN[name] = int(k)
+		}
 	}
 	return out
 }
@@ -325,6 +349,10 @@ func decode(f *History, valid map[string]bool) *hist {
 	}
 	for _, name := range hostNames {
 		if c, ok := decHost(f.Host[name]); ok && len(c) > 0 {
+			if k := f.HostN[name]; k > 1 && k <= math.MaxUint16 && c[len(c)-1].n == 1 {
+				last := &c[len(c)-1]
+				last.n, last.sum = uint16(k), last.sum*float64(k)
+			}
 			h.host[name] = c
 		}
 	}

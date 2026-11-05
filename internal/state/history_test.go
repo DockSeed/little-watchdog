@@ -142,9 +142,37 @@ func TestHistClockBack(t *testing.T) {
 	if cs := e.hist.checks["a"]; len(cs) != 1 || cs[0].ok != 2 {
 		t.Fatalf("%+v", cs)
 	}
-	e.Observe(c, took(5), t0.Add(-100*histStep)) // far back: the old cells stood for another time
+	// far back in a young process: the clock is probably not set yet, nothing is recorded or lost
+	e.Observe(c, took(5), t0.Add(-100*histStep))
+	if cs := e.hist.checks["a"]; len(cs) != 1 || cs[0].ok != 2 || e.hist.end != bucketOf(t0) {
+		t.Fatalf("%+v", cs)
+	}
+	// the same after over an hour: a real step back, the old cells stood for another time
+	e.hist.born = time.Now().Add(-2 * histTrust)
+	e.Observe(c, took(5), t0.Add(-100*histStep))
 	if cs := e.hist.checks["a"]; len(cs) != 1 || cs[0].ok != 1 {
 		t.Fatalf("%+v", cs)
+	}
+}
+
+// A board without RTC restarts with the clock behind the saved history: the 24 h stay in the
+// file, and recording resumes once the clock is past the saved end.
+func TestHistRestartWithClockBehindKeepsTheHistory(t *testing.T) {
+	e := NewEngine(2, 1)
+	c := fake{"a", "http"}
+	for i := 0; i < 20; i++ {
+		e.Observe(c, took(5), t0.Add(time.Duration(i)*histStep))
+	}
+	f := e.hist.encode()
+	e2 := NewEngine(2, 1)
+	e2.hist = decode(f, map[string]bool{"a": true})
+	e2.Observe(c, took(5), t0.Add(-1000*time.Hour)) // clock still at the last boot's time
+	if got := e2.hist.encode(); got == nil || got.Checks["a"] != f.Checks["a"] || got.End != f.End {
+		t.Fatalf("history changed: %+v", got)
+	}
+	e2.Observe(c, took(5), t0.Add(25*histStep)) // NTP is in
+	if cs := e2.hist.checks["a"]; len(cs) < 20 || cs[len(cs)-1].ok != 1 {
+		t.Fatalf("%d cells", len(cs))
 	}
 }
 
@@ -270,5 +298,27 @@ func TestHistCorruptNeverStops(t *testing.T) {
 		if err := e.save(p, t0); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A restart inside the open bucket keeps the weight of the host mean.
+func TestHistHostMeanKeepsItsWeightAcrossARestart(t *testing.T) {
+	e := NewEngine(2, 1)
+	c := fake{"sys:cpu", "cpu"}
+	for i, v := range []float64{10, 10, 10, 10} {
+		e.Observe(c, lvl(v), t0.Add(time.Duration(i)*time.Minute))
+	}
+	f := e.hist.encode()
+	e2 := NewEngine(2, 1)
+	e2.hist = decode(f, nil)
+	e2.Observe(c, lvl(50), t0.Add(5*time.Minute))
+	cs := e2.hist.host[HostCPU]
+	if got := cs[len(cs)-1].sum / float64(cs[len(cs)-1].n); got != 18 { // (4*10+50)/5
+		t.Fatalf("mean %v", got)
+	}
+	// an old file without host_n reads as before
+	f.HostN = nil
+	if cs := decode(f, nil).host[HostCPU]; cs[len(cs)-1].n != 1 {
+		t.Fatal("old file")
 	}
 }

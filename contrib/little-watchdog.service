@@ -11,6 +11,9 @@ StartLimitBurst=5
 [Service]
 ExecStart=/usr/bin/little-wd run
 ExecReload=/bin/kill -HUP $MAINPID
+# With transparent huge pages set to "always", the kernel backs the small Go heap
+# with 2 MB pages: about 2.5 MB more RSS, at random. The Go runtime opts out here.
+Environment=GODEBUG=disablethp=1
 Restart=always
 RestartSec=10
 

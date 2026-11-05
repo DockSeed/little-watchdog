@@ -22,6 +22,12 @@
 
 ### Daemon
 
+- The unit sets `GODEBUG=disablethp=1`. Where transparent huge pages are
+  `always` (`/sys/kernel/mm/transparent_hugepage/enabled`), the kernel backed
+  the small Go heap with 2 MB pages; the daemon used 2 to 4 MB more RAM, at
+  random. Elsewhere the setting changes nothing. Measured on arm64 with 12 checks: RSS 13.7–15.3 MB before,
+  11.2–11.5 MB after; memory charged to the unit 9–11 MB before, 5–5.6 MB after.
+
 - On a board without a real-time clock the daemon start ("Started", the
   footer, "since the daemon start") showed the clock from before NTP set it.
   The daemon now notices the jump (wall clock against monotonic time, within

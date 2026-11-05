@@ -781,3 +781,44 @@ func TestFixStart(t *testing.T) {
 		t.Fatal("moved without a jump")
 	}
 }
+
+func TestHelpIsKeptForTheScreenNotTheMessage(t *testing.T) {
+	e := NewEngine(1, 1)
+	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
+	r := checks.Result{Status: checks.FAIL, Detail: "connection refused", Value: "connection refused", Help: checks.Help(checks.KindRefused)}
+	m := e.Observe(fake{"a", "http"}, r, at)
+	if want := "❌ <b>a</b> is down since 14:07: connection refused."; m != want {
+		t.Fatalf("the message is unchanged by the hint: %q, want %q", m, want)
+	}
+	if en := e.Snapshot()[0]; en.Help != checks.Help(checks.KindRefused) {
+		t.Fatalf("help not kept: %+v", en)
+	}
+	path := filepath.Join(t.TempDir(), "s.json")
+	b, _ := json.Marshal(map[string]any{"version": 2, "checks": map[string]any{"http:a": map[string]any{"name": "a", "type": "http", "reported": "FAIL", "help": "x\x1b[2Jy"}}})
+	os.WriteFile(path, b, 0o600)
+	if es, err := ReadFile(path); err != nil || len(es) != 1 || strings.ContainsRune(es[0].Help, '\x1b') || !strings.HasPrefix(es[0].Help, "x") {
+		t.Fatalf("loaded help: %+v %v", es, err)
+	}
+	m = e.Observe(fake{"a", "http"}, checks.Result{Status: checks.OK, Value: "HTTP 200"}, at.Add(time.Minute))
+	if en := e.Snapshot()[0]; en.Help != "" || strings.Contains(m, "Maybe") {
+		t.Fatalf("recovery clears the hint: %q %+v", m, en)
+	}
+}
+
+// An odd OK (a port that answers without a website) is kept for the yellow mark,
+// sends no message and is cleared by a normal OK.
+func TestOddOKIsShownNotSent(t *testing.T) {
+	e := NewEngine(1, 1)
+	at := time.Date(2026, 11, 4, 20, 0, 0, 0, time.Local)
+	e.Observe(fake{"a", "http"}, checks.Result{Status: checks.OK, Value: "answers, 200"}, at)
+	if m := e.Observe(fake{"a", "http"}, checks.Result{Status: checks.OK, Odd: true, Value: "answers, no website"}, at.Add(time.Minute)); m != "" {
+		t.Fatalf("odd OK sent a message: %q", m)
+	}
+	if en := e.Snapshot()[0]; !en.Odd || en.Reported != checks.OK {
+		t.Fatalf("odd not kept: %+v", en)
+	}
+	e.Observe(fake{"a", "http"}, checks.Result{Status: checks.OK, Value: "answers, 200"}, at.Add(2*time.Minute))
+	if en := e.Snapshot()[0]; en.Odd {
+		t.Fatalf("odd not cleared: %+v", en)
+	}
+}

@@ -4,9 +4,11 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,6 +91,10 @@ type form struct {
 	btns   []string
 	err    string
 	submit func(f *form) string // error text, or "" when handled
+	res    string               // result of the last check, shown in the form
+	busy   context.CancelFunc   // set while the form's check runs; Esc calls it
+	back   screen               // where Esc and Cancel lead
+	pre    []string             // field values to start with, again after each save
 }
 
 func (f *form) radio() int {
@@ -388,7 +394,7 @@ func (m *model) menuKey(k Key) {
 			m.scr = scStatus
 			m.refresh()
 		case "Add check":
-			m.addForm()
+			m.addForm("")
 		case "Remove check":
 			m.removeList()
 		case "System checks":
@@ -413,7 +419,25 @@ func (m *model) statusKey(k Key) {
 		m.scr = scMenu
 	case k.Code == Enter && m.scur < len(ents):
 		m.det, m.dk = ents[m.scur], dDetails
+	case k.Code == Rune && (k.R == 'a' || k.R == 'A'):
+		m.addHere(ents)
 	}
+}
+
+// addHere opens Add check from Status, with the host of the check under the cursor
+// filled in; on a check without a host (this machine) the address is empty.
+func (m *model) addHere(ents []state.Entry) {
+	if locked("Add check", m.mode) {
+		m.flow, m.scr, m.dk, m.lines = "Add check", scBlank, dResult, []string{needGroup()}
+		return
+	}
+	host := ""
+	if m.scur < len(ents) {
+		if s, ok := m.target(ents[m.scur]); ok {
+			host = hostOf(s.Target)
+		}
+	}
+	m.addForm(host).back = scStatus
 }
 
 func (m *model) listKey(k Key) {
@@ -472,9 +496,16 @@ func (m *model) formKey(k Key) {
 			}
 		}
 	}()
+	if f.busy != nil && k.Code != Esc {
+		return // a check runs; only Esc (cancel) counts
+	}
 	switch {
 	case k.Code == Esc:
-		m.dk, m.scr = dNone, scMenu
+		if f.busy != nil {
+			f.busy()
+			f.busy = nil
+		}
+		m.dk, m.scr = dNone, f.back
 	case k.Code == CtrlR && f.secret:
 		f.reveal = !f.reveal
 	case k.Code == Up:
@@ -504,7 +535,7 @@ func (m *model) formKey(k Key) {
 	case k.Code == Rune && class == -1 && k.R == ' ':
 		f.kind = (f.kind + 1) % len(f.kinds)
 	case k.Code == Enter && class == 1 && fi == len(f.btns)-1:
-		m.dk, m.scr = dNone, scMenu
+		m.dk, m.scr = dNone, f.back
 	case k.Code == Enter && class == 0 && fi < f.nf()-1, k.Code == Enter && class == -1:
 		f.idx++
 	case k.Code == Enter:
@@ -517,7 +548,7 @@ func (m *model) newForm(title string, kinds []kindSpec, btns []string, submit fu
 	for _, k := range kinds {
 		n = max(n, len(k.labels))
 	}
-	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, n), pos: make([]int, n)}
+	f := &form{title: title, kinds: kinds, btns: btns, submit: submit, vals: make([]string, n), pos: make([]int, n), back: scMenu}
 	for i := range f.pos {
 		f.pos[i] = atEnd
 	}
@@ -526,55 +557,115 @@ func (m *model) newForm(title string, kinds []kindSpec, btns []string, submit fu
 	return f
 }
 
-func (m *model) addForm() {
-	kinds := []kindSpec{
-		{"Website", "http", []string{"Name", "URL", "Text"}, []string{nameHint, "The page address, http:// or https://.", "Optional: OK only if this text is on the page."}},
-		{"Port", "tcp", []string{"Name", "host:port"}, []string{nameHint, "A TCP port that should be open, for example 192.0.2.5:22."}},
-		{"Host", "host", []string{"Name", "host:port"}, []string{nameHint, "Any port of the host; a refused connection still counts as alive."}},
-	}
-	f := m.newForm("Add check", kinds, []string{"Check and save", "Cancel"}, func(f *form) string {
-		typ, v := f.kinds[f.kind].typ, f.vals
-		name := strings.ToUpper(strings.TrimSpace(v[0]))
-		val := strings.TrimSpace(v[1])
-		if t := strings.TrimSpace(v[2]); typ == "http" && t != "" {
-			if strings.HasPrefix(t, `"`) {
-				t = config.Quote(t) // a bare leading quote would start a quoted value
-			}
-			val += " contains=" + t
-		}
-		key := strings.ToUpper(typ) + "_" + name
-		if !nameRe.MatchString(name) {
-			return "Name: use letters, digits and _ only"
-		}
-		if m.file.Has(key) {
-			return key + " exists, remove it first"
-		}
-		tmp := m.file.Clone()
-		tmp.Set(key, val)
-		cfg, err := config.Parse(strings.NewReader(tmp.Text()), false)
-		if err != nil {
-			return err.Error()
-		}
-		m.async(func(ctx context.Context) func(*model) {
-			ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+time.Second)
-			defer cancel()
-			res := "no result"
-			for _, c := range checks.Build(cfg, func(string, ...any) {}) {
-				if c.Type() == typ && c.Name() == strings.ToLower(name) {
-					r := c.Run(ctx)
-					res = string(r.Status) + " " + r.Value + " " + r.Detail
-				}
-			}
-			return func(m *model) { m.commit(tmp, "Check once: "+strings.TrimSpace(res)) }
-		})
-		return ""
-	})
+// addForm opens the Add check form; with a host, the address starts with it and
+// the caret waits at its end for a port or a path.
+func (m *model) addForm(host string) *form {
+	spec := kindSpec{labels: []string{"Address", "Name"}, hints: []string{addrHint, nameHint}}
+	f := m.newForm("Add check", []kindSpec{spec}, []string{"Check and save", "Cancel"}, m.addSubmit)
 	f.note = "Checked once before saving."
+	if host != "" {
+		f.pre = []string{addrOf(host), ""}
+		copy(f.vals, f.pre)
+		f.kinds[0].hints = []string{"Type a port, for example :8096, or a path. Alone, " + addrOf(host) + " is pinged.", nameHint}
+	}
+	return f
 }
 
-const nameHint = "Name: letters, digits and _ only. Shown in Telegram messages."
+const (
+	addrHint = "An IP or name is pinged. With a port (host:8080) any answer counts; with a path (https://host/health) only 2xx."
+	nameHint = "Optional, any text. Shown in the list and in Telegram messages."
+)
+
+// addSubmit saves the address at once, then checks it once and shows the result;
+// the form is cleared for the next address. Esc while it checks leaves, the check stays saved.
+func (m *model) addSubmit(f *form) string {
+	addr, name := strings.TrimSpace(f.vals[0]), strings.TrimSpace(f.vals[1])
+	w, err := config.Detect(addr)
+	if err != nil {
+		return "Address: " + err.Error()
+	}
+	if name == "" {
+		name = w.Name
+	}
+	key := config.FreeKey(m.file, w.Type, name)
+	tmp := m.file.Clone()
+	tmp.Set(key, w.Value(name))
+	cfg, err := config.Parse(strings.NewReader(tmp.Text()), false)
+	if err != nil {
+		return err.Error()
+	}
+	id := w.Type + ":" + strings.ToLower(strings.TrimPrefix(key, strings.ToUpper(w.Type)+"_"))
+	var c checks.Check
+	for _, x := range checks.Build(cfg, func(string, ...any) {}) {
+		if x.ID() == id {
+			c = x
+		}
+	}
+	if c == nil {
+		return "no check built for " + key
+	}
+	if msg := m.addSave(tmp); msg != "" {
+		return msg
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, cfg.Timeout+time.Second)
+	f.busy, f.res, f.err = cancel, "Checking "+addr+" ...", ""
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.post(func(*model) { panic(r) }) // re-panic on the UI goroutine so the terminal is restored
+			}
+		}()
+		r := c.Run(ctx)
+		m.post(func(m *model) {
+			cancel()
+			if m.dk != dForm || m.form != f || f.busy == nil {
+				return // Esc: left the form, the check is saved already
+			}
+			f.busy = nil
+			if r.Status == checks.OK {
+				m.addDone(f, m.th.g.good+" "+r.Value+". Saved as "+name+".")
+				return
+			}
+			why := cmp.Or(r.Detail, r.Value, "no result")
+			res := m.th.g.bad + " " + why + ". Saved as " + name + "; it shows as failing until it answers."
+			if w.Type == "ping" && r.NoAnswer {
+				res += " Some machines (Windows) do not answer ping: add a port, for example " + net.JoinHostPort(addr, "22") + "."
+			}
+			m.addDone(f, res)
+		})
+	}()
+	return ""
+}
+
+// addSave writes tmp; it returns what went wrong, or "".
+func (m *model) addSave(tmp *config.File) string {
+	if err := tmp.Save(); err != nil {
+		msg := "Cannot write " + tmp.Path + ": " + err.Error()
+		if os.IsPermission(err) {
+			msg += ". " + needGroup()
+		}
+		return msg
+	}
+	m.file = tmp
+	m.refresh()
+	return ""
+}
+
+// addDone empties the form for the next address; res says what the check found.
+func (m *model) addDone(f *form, res string) {
+	if m.daemonDown() {
+		res += " The watchdog is not running: sudo systemctl start little-watchdog."
+	}
+	f.res, f.err, f.idx = res, "", 0
+	for i := range f.vals {
+		f.vals[i], f.pos[i] = "", atEnd
+	}
+	copy(f.vals, f.pre)
+	f.note = "Next address, or Esc to leave."
+}
 
 type checkRow struct {
+	id                string // state key; empty for this machine's checks
 	name, typ, target string
 	host              bool
 	off               func(f *config.File) // removes the check from the config
@@ -606,7 +697,7 @@ func allChecks(c *config.Config) (rs []checkRow) {
 	}
 	for _, s := range c.Checks {
 		key := strings.ToUpper(s.Type) + "_" + strings.ToUpper(s.Name)
-		rs = append(rs, checkRow{name: s.Name, typ: s.Type, target: s.Target, off: func(f *config.File) { f.Remove(key) }})
+		rs = append(rs, checkRow{id: s.ID(), name: s.Shown(), typ: s.Type, target: s.Target, off: func(f *config.File) { f.Remove(key) }})
 	}
 	return rs
 }
@@ -793,6 +884,16 @@ func (m *model) raw(key, def string) string {
 
 func needGroup() string { return config.NeedGroupText() }
 
+// daemonDown: the config is valid, but the daemon has not written a heartbeat lately.
+func (m *model) daemonDown() bool {
+	c := m.snap.cfg
+	if c == nil {
+		return false
+	}
+	_, stale := state.Stale(c.StateFile, c.StaleAfter(), time.Now())
+	return stale
+}
+
 // commit saves tmp as the new config and tells the user how the daemon picks it up.
 func (m *model) commit(tmp *config.File, msg ...string) {
 	m.dk = dResult
@@ -808,11 +909,9 @@ func (m *model) commit(tmp *config.File, msg ...string) {
 	}
 	m.file = tmp
 	m.refresh()
-	if c := m.snap.cfg; c != nil {
-		if _, stale := state.Stale(c.StateFile, c.StaleAfter(), time.Now()); stale {
-			m.logf("Saved. The daemon does not seem to run (no recent heartbeat): start it with sudo systemctl start little-watchdog.")
-			return
-		}
+	if m.daemonDown() {
+		m.logf("Saved. The daemon does not seem to run (no recent heartbeat): start it with sudo systemctl start little-watchdog.")
+		return
 	}
 	m.logf("Saved — little-wd applies it within one interval.")
 }

@@ -7,6 +7,7 @@ package config
 
 import (
 	"bufio"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -29,13 +30,28 @@ const (
 	EnvPath     = "LITTLE_WATCHDOG_CONFIG"
 )
 
-// CheckSpec is one HTTP_/TCP_/HOST_ entry.
+// CheckSpec is one HTTP_/TCP_/HOST_/PING_ entry.
 type CheckSpec struct {
-	Name     string // lower-case check name
-	Type     string // "http", "tcp", "host"
-	Target   string // URL or host:port
+	Name     string // lower-case check name from the key; with Type the identity of the check
+	Type     string // "http", "tcp", "host", "ping"
+	Target   string // URL, host:port, or host (ping)
 	Contains string // http only
+	Label    string // name="..." option: the name shown to people; empty: Name
+	Mode     string // http only: "" (0.3 rules: 200-399, no redirects), ModeLenient or ModeStrict
 }
+
+// HTTP modes (option mode=): lenient follows redirects and takes any answer below 500,
+// strict follows redirects and takes only 2xx. Without mode= the 0.3 rules apply.
+const (
+	ModeLenient = "lenient"
+	ModeStrict  = "strict"
+)
+
+// ID is the check's key in the state file, the same for every name= it gets.
+func (s CheckSpec) ID() string { return s.Type + ":" + s.Name }
+
+// Shown is the name people see: name= if set, else the name from the key.
+func (s CheckSpec) Shown() string { return cmp.Or(s.Label, s.Name) }
 
 type Config struct {
 	Token        string
@@ -321,7 +337,7 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 			if err != nil {
 				return nil, bad("%v", err)
 			}
-		case strings.HasPrefix(key, "HTTP_"), strings.HasPrefix(key, "TCP_"), strings.HasPrefix(key, "HOST_"):
+		case strings.HasPrefix(key, "HTTP_"), strings.HasPrefix(key, "TCP_"), strings.HasPrefix(key, "HOST_"), strings.HasPrefix(key, "PING_"):
 			typ, _, _ := strings.Cut(key, "_")
 			typ = strings.ToLower(typ)
 			name := strings.ToLower(key[len(typ)+1:])
@@ -353,6 +369,13 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 					}
 					opts = []option{{"contains", t}}
 				}
+			} else if typ == "ping" {
+				if err = pingHost(target); err != nil {
+					return nil, bad("%v", err)
+				}
+				if oerr != nil {
+					return nil, bad("%v (expected `host`)", oerr)
+				}
 			} else {
 				if err = hostPort(target); err != nil {
 					return nil, bad("%v", err)
@@ -369,6 +392,17 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 						return nil, bad("contains= needs one non-empty text")
 					}
 					spec.Contains = o.val
+				case o.key == "name":
+					if strings.TrimSpace(o.val) == "" {
+						return nil, bad("name= needs a non-empty text")
+					}
+					spec.Label = strings.TrimSpace(o.val)
+				case typ == "http" && o.key == "mode":
+					if o.val != ModeLenient && o.val != ModeStrict {
+						c.Warnings = append(c.Warnings, fmt.Sprintf("line %d: %s: unknown mode %s ignored, the default rules apply", n, key, o.val))
+						continue
+					}
+					spec.Mode = o.val
 				default:
 					c.Warnings = append(c.Warnings, fmt.Sprintf("line %d: %s: unknown option %s ignored", n, key, o.key))
 				}
@@ -467,6 +501,19 @@ func pct(v string, lo, hi float64) (float64, error) {
 	}
 	return f, nil
 }
+
+// pingHost accepts an IP address (v4 or v6) or a host name, no port.
+func pingHost(v string) error {
+	if net.ParseIP(v) != nil || HostName(v) {
+		return nil
+	}
+	return errors.New("invalid host (expected an IP address or a host name, no port)")
+}
+
+var hostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$`)
+
+// HostName reports whether v is a plain host name (letters, digits, - and dots).
+func HostName(v string) bool { return len(v) <= 253 && hostRe.MatchString(v) }
 
 func hostPort(v string) error {
 	i := strings.LastIndex(v, ":")

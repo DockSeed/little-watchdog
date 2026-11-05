@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+### Config
+
+- New key `PING_<NAME>=host`: the host answers ping (ICMP echo over the
+  unprivileged datagram socket, no capability; allowed by
+  `net.ipv4.ping_group_range`, which systemd opens to all groups).
+- New option `name="..."` for every check: the name shown in little-wd and
+  in Telegram messages, any text. Without it the name is the key as before.
+- New option `mode=` for `HTTP_`: `lenient` follows up to 5 redirects and
+  takes any answer below 500, and a port that answers but is no website;
+  `strict` follows redirects and takes only 2xx. `HTTP_` lines without
+  `mode=` keep the old rule (200 to 399, no redirects).
+
+### little-wd
+
+- Add check is one form: Address, then an optional Name. No more choice
+  between website, port and host: an IP or host name is pinged, `host:port`
+  or a URL without a path is a lenient web check, a URL with a path a
+  strict one. The menu line reads "Watch an address".
+- The name may be any text; little-wd makes the config key from it (ä to
+  ae and so on, `_2` for a name already used). An empty name is taken from
+  the address.
+- Enter saves the address at once, checks it once and shows the result in
+  the form, then clears it for the next address. A failed check is saved too
+  and the result says why. Esc leaves, also while the check runs; the check
+  stays saved.
+- A port that answers but not as a website ("answers, no website") is OK but
+  shown yellow, in the list and in the menu summary. It sends no message.
+  After a redirect this no longer applies: a redirect to a dead target fails.
+- A passing web check reads "answers, 200 in 16 ms" for old `HTTP_` lines too
+  (was "HTTP 200 in 16ms"); a failing one keeps "HTTP 404 in 16 ms".
+- Status, Remove check and messages show the name from `name=`.
+- Status groups the services by host: checks on the same IP or host name
+  (port, path and scheme left out) stand under one line with the host. A host
+  with only one check gets no line of its own; these checks come first, as
+  before. The order depends on the config only, never on a result.
+- `a` in Status opens Add check with the host of the check under the cursor
+  already in the address: type `:8096` and a name. On a check of this machine
+  the address is empty. Esc goes back to Status. Every service stays a check
+  of its own; config, state file and Telegram messages are unchanged.
+- Details of a failing check (Enter on it) show "What to do:" under the
+  last result: one short hint per kind of failure (refused, blocked, not
+  reachable, no answer, name not found, certificate, HTTP 4xx/5xx, text
+  missing, cpu, memory, disk, temperature). It names possible causes only.
+  Telegram messages stay as they are.
+
+### State file
+
+- New fields per check: `help` (the hint above, set while the check fails)
+  and `odd` (OK, but shown yellow). Additive: older versions ignore them.
+
 ## [0.3.1] - 2026-11-05
 
 ### Config

@@ -71,6 +71,7 @@ type glyphs struct {
 	radOn, radOff        string
 	arrow, bar, updown   string
 	dot                  string // between a value and its time
+	good, bad            string // a check result in a form
 }
 
 type theme struct {
@@ -78,8 +79,8 @@ type theme struct {
 	g     glyphs
 }
 
-var uniGlyphs = glyphs{"╭", "╮", "╰", "╯", "─", "│", "[✓]", "[ ]", "(•)", "( )", "›", "│", "↑↓", "·"}
-var asciiGlyphs = glyphs{"+", "+", "+", "+", "-", "|", "[x]", "[ ]", "(*)", "( )", ">", "|", "^v", "-"}
+var uniGlyphs = glyphs{"╭", "╮", "╰", "╯", "─", "│", "[✓]", "[ ]", "(•)", "( )", "›", "│", "↑↓", "·", "✓", "✗"}
+var asciiGlyphs = glyphs{"+", "+", "+", "+", "-", "|", "[x]", "[ ]", "(*)", "( )", ">", "|", "^v", "-", "OK", "FAIL"}
 
 var lowColourTerms = map[string]bool{"linux": true, "vt100": true, "vt102": true, "vt220": true, "ansi": true, "screen": true, "tmux": true, "cons25": true}
 

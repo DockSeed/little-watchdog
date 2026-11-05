@@ -50,8 +50,28 @@ Use a separate bot for the watchdog. If the token leaks, revoke it with
 
 ## 3. Checks
 
-In `little-wd` choose **Add check**: a website, a port or a host. The own
-machine (disk, memory, temperature, CPU) is watched by default; change its
+In `little-wd` choose **Add check** and type an address; the name below it is
+optional (any text, shown in Telegram). little-wd works out what to watch:
+
+| Address | Watched as | OK when |
+|---|---|---|
+| `192.168.1.10` or `nas.lan` | ping | it answers ping |
+| `192.168.1.10:2283` or `https://example.org` | web, lenient | any answer below 500, after redirects; a port that answers but is no website counts too |
+| `https://example.org/health` (with a path) | web, strict | 200 to 299, after redirects |
+
+Enter saves the address at once, checks it once and shows the result. A
+failed check is saved too, and the result says why. The form is then empty for
+the next address. Esc leaves, also while the check runs; what was saved stays. Some machines (Windows) do not answer ping:
+give a port then, for example `192.168.1.20:3389`.
+
+**Status** sorts the checks of one host under its name (the IP or host name
+from the address, without port or path), so `192.168.1.10`, `:2283` and
+`:8096` on the same machine stand together. A host with a single check gets
+no extra line. Press `a` on a check in Status to add another one on its host:
+the address starts with the host, type only the port (`:8096`) and a name.
+Each one stays a check of its own.
+
+The own machine (disk, memory, temperature, CPU) is watched by default; change its
 limits under **System checks**. The temperature check takes the hottest sensor;
 to pick one, fill in **Sensor** under System checks > temperature. **Settings**
 sets how often the checks run and after how many rounds the alarm and the

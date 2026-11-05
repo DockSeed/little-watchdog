@@ -27,6 +27,7 @@ const maxPending = 20
 const fileVersion = 2
 
 type Entry struct {
+	ID        string        `json:"-"` // the key in the state file, set when read
 	Name      string        `json:"name"`
 	Type      string        `json:"type"`
 	Reported  checks.Status `json:"reported"`
@@ -38,6 +39,8 @@ type Entry struct {
 	NoValue   bool          `json:"no_value,omitempty"`  // the last result was UNKNOWN: Value is no verdict (warm-up, read error)
 	VerdictAt time.Time     `json:"verdict_at,omitzero"` // last OK or FAIL result
 	Detail    string        `json:"detail,omitempty"`    // latest error of the running failure streak
+	Help      string        `json:"help,omitempty"`      // hint about Detail for the TUI (additive: old readers ignore it)
+	Odd       bool          `json:"odd,omitempty"`       // OK, but shown yellow: it answers, not as promised (additive)
 	LastRun   time.Time     `json:"last_run"`
 	LastMsg   string        `json:"last_msg,omitempty"`
 	LastMsgAt time.Time     `json:"last_msg_at,omitzero"`
@@ -316,7 +319,8 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 	npend := len(en.Pending)
 	name, detail := checks.Sanitize(c.Name()), checks.Sanitize(r.Detail)
 	bname, bdetail := telegram.B(name), telegram.Esc(detail) // messages are Telegram HTML
-	nv0, v0 := en.NoValue, en.VerdictAt
+	nv0, v0, odd0 := en.NoValue, en.VerdictAt, en.Odd
+	en.Odd = r.Status == checks.OK && r.Odd
 	en.Name, en.Type, en.Value, en.NoValue, en.LastRun = name, c.Type(), checks.Sanitize(r.Value), r.Status == checks.UNKNOWN, now
 	if !en.NoValue {
 		en.VerdictAt = now
@@ -325,7 +329,7 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 		switch {
 		case sigOf() != before || len(en.Pending) != npend || msg != "" || nv0 && !en.NoValue && v0.Before(e.Started):
 			e.dirty = true // also the first verdict after a start, so the screen drops the warm-up text
-		case en.Fails != fails0 || en.OKs != oks0 || en.NoValue != nv0:
+		case en.Fails != fails0 || en.OKs != oks0 || en.NoValue != nv0 || en.Odd != odd0:
 			e.cdirty = true // a flapping check writes at most once per counterEvery
 		}
 	}()
@@ -336,7 +340,7 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 		if en.Fails == 0 && en.Reported != checks.FAIL {
 			en.DownSince = now // first failure of the streak
 		}
-		en.Detail = detail
+		en.Detail, en.Help = detail, checks.Sanitize(r.Help)
 		if detail == "" {
 			en.Detail = checks.Sanitize(r.Value)
 		}
@@ -360,7 +364,7 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 			en.OKs = 0 // inside hysteresis band: neither fail nor recover
 			break
 		}
-		en.Fails, en.Detail = 0, ""
+		en.Fails, en.Detail, en.Help = 0, "", ""
 		if en.Reported != checks.FAIL {
 			en.DownSince = time.Time{}
 		}
@@ -398,7 +402,9 @@ func (en *Entry) alignAt() {
 }
 
 // isService: a check of something that is reachable over the network (down), not a host limit (problem).
-func isService(typ string) bool { return typ == "http" || typ == "tcp" || typ == "host" }
+func isService(typ string) bool {
+	return typ == "http" || typ == "tcp" || typ == "host" || typ == "ping"
+}
 
 // When is t as the clock time of today, with the date when it was another day.
 func When(t, now time.Time) string {
@@ -567,8 +573,10 @@ func (e *Engine) Snapshot() []Entry {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out := make([]Entry, 0, len(e.entries))
-	for _, en := range e.entries {
-		out = append(out, *en)
+	for id, en := range e.entries {
+		c := *en
+		c.ID = id
+		out = append(out, c)
 	}
 	sortEntries(out)
 	return out
@@ -625,11 +633,13 @@ func ReadAll(path string) (st Snap, err error) {
 	}
 	st.Foot = f.Foot
 	out := []Entry(nil)
-	for _, en := range f.Checks {
+	for id, en := range f.Checks {
 		if en != nil {
 			c := *en
+			c.ID = id
 			c.Name, c.Value = checks.Sanitize(c.Name), checks.Sanitize(c.Value)
 			c.Detail, c.LastMsg = checks.Sanitize(c.Detail), checks.Sanitize(c.LastMsg)
+			c.Help = checks.Sanitize(c.Help)
 			out = append(out, c)
 		}
 	}
@@ -717,7 +727,7 @@ func Table(es []Entry, recoverAfter int, started, now time.Time) string {
 // Section lists for /status and the TUI: this machine first, then the services.
 var (
 	MachineTypes = []string{"cpu", "mem", "disk", "temp"}
-	ServiceTypes = []string{"http", "tcp", "host"}
+	ServiceTypes = []string{"http", "tcp", "host", "ping"}
 )
 
 // Headings of the two groups, in /status and in the TUI.

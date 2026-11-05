@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type snapshot struct {
 	ok, bad int
 	failed  []string
 	shaky   []string // failing, but not reported yet (below FAIL_AFTER)
+	odd     []string // OK, but not as the address promised (shown yellow)
 	lastMsg time.Time
 	rows    []srow
 	ents    []state.Entry
@@ -108,7 +110,7 @@ func (m *model) refresh() {
 			s.foot = st.Foot
 		}
 	}
-	s.ok, s.bad, s.failed, s.shaky, s.lastMsg, s.pending = 0, 0, nil, nil, time.Time{}, 0
+	s.ok, s.bad, s.failed, s.shaky, s.odd, s.lastMsg, s.pending = 0, 0, nil, nil, nil, time.Time{}, 0
 	for _, e := range s.es {
 		switch e.Reported {
 		case checks.OK, checks.UNKNOWN:
@@ -116,6 +118,9 @@ func (m *model) refresh() {
 				s.shaky = append(s.shaky, e.Name)
 			} else if e.Reported == checks.OK {
 				s.ok++
+				if e.Odd {
+					s.odd = append(s.odd, e.Name)
+				}
 			}
 		case checks.FAIL:
 			s.bad++
@@ -126,7 +131,7 @@ func (m *model) refresh() {
 			s.lastMsg = e.LastMsgAt
 		}
 	}
-	s.rows, s.ents = buildRows(s.es)
+	s.rows, s.ents = buildRows(s.es, hostsOf(s.cfg))
 	s.stale, s.age, s.pairing, s.linked = false, 0, false, time.Time{}
 	if s.cfg != nil {
 		s.pairing = config.PairingActive(m.file.Path, time.Now())
@@ -162,14 +167,16 @@ var hostTypes = state.MachineTypes
 func rank(list []string, t string) int { return state.Rank(list, t) }
 
 type srow struct {
-	hdr string // section header, or
-	ent int    // index into the entry list when hdr is empty
+	hdr  string // section header, or
+	ent  int    // index into the entry list when hdr is empty
+	host bool   // hdr is a host whose checks follow
 }
 
-// statusRows groups the entries into "This machine" and "Services" (as /status does); ents is in display order.
+// statusRows groups the entries into "This machine" and "Services" (as /status does), the
+// services by host; ents is in display order.
 func (m *model) statusRows() ([]srow, []state.Entry) { return m.snap.rows, m.snap.ents }
 
-func buildRows(es []state.Entry) (rows []srow, ents []state.Entry) {
+func buildRows(es []state.Entry, hosts map[string]string) (rows []srow, ents []state.Entry) {
 	for _, sec := range []struct {
 		name  string
 		types []string
@@ -183,6 +190,10 @@ func buildRows(es []state.Entry) (rows []srow, ents []state.Entry) {
 		sort.SliceStable(part, func(i, j int) bool { return rank(sec.types, part[i].Type) < rank(sec.types, part[j].Type) })
 		if len(part) > 0 {
 			rows = append(rows, srow{hdr: sec.name})
+		}
+		if sec.name == state.ServiceHead {
+			rows, ents = serviceRows(part, hosts, rows, ents)
+			continue
 		}
 		for _, e := range part {
 			rows = append(rows, srow{ent: len(ents)})
@@ -206,7 +217,7 @@ func clock(t, now time.Time) string {
 func (m *model) target(e state.Entry) (spec config.CheckSpec, ok bool) {
 	if m.snap.cfg != nil {
 		for _, s := range m.snap.cfg.Checks {
-			if s.Type == e.Type && s.Name == e.Name {
+			if s.ID() == e.ID {
 				return s, true
 			}
 		}
@@ -282,10 +293,12 @@ func (m *model) menuVal(it string) (string, sty) {
 			return fmt.Sprintf("%d FAIL: %s", m.snap.bad, strings.Join(m.snap.failed, ", ")), sFail
 		case len(m.snap.shaky) > 0:
 			return fmt.Sprintf("%d OK, %d unstable: %s", m.snap.ok, len(m.snap.shaky), strings.Join(m.snap.shaky, ", ")), sWarn
+		case len(m.snap.odd) > 0:
+			return fmt.Sprintf("all answer, %d not as a website: %s", len(m.snap.odd), strings.Join(m.snap.odd, ", ")), sWarn
 		}
 		return "all OK", sOK
 	case "Add check":
-		return "Website, port or host", sBg
+		return "Watch an address", sBg
 	}
 	if c == nil {
 		return m.snap.cfgErr, sFail
@@ -365,7 +378,7 @@ func (m *model) telegramValue(c *config.Config, now time.Time) (string, sty) {
 
 var about = map[string]string{
 	"Status":          "Latest result of every check.",
-	"Add check":       "Watch a website, a TCP port or a host. It is checked once before it is saved.",
+	"Add check":       "Type an address: an IP or name is pinged, with a port or a path it is watched as a website. It is checked once before it is saved.",
 	"Remove check":    "Pick a check and remove it from the config.",
 	"System checks":   "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
 	"Settings":        "How often the checks run, and after how many rounds an alarm or all-clear goes out.",
@@ -402,7 +415,7 @@ func (m *model) render(out io.Writer) {
 		hint, keys = m.drawMenu(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
 	case scStatus:
 		crumb = "Status"
-		hint, keys = m.drawStatusPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "details"}, {"Esc", "menu"}, {"?", "help"}}
+		hint, keys = m.drawStatusPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "details"}, {"A", "add"}, {"Esc", "menu"}, {"?", "help"}}
 	case scRemove:
 		crumb = "Remove check"
 		hint, keys = m.drawRemove(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "remove"}, {"Esc", "menu"}, {"?", "help"}}
@@ -623,6 +636,9 @@ func (m *model) markOf(e state.Entry) (string, sty) {
 	}
 	switch e.Reported {
 	case checks.OK:
+		if e.Odd {
+			return "[OK]", sWarn // it answers, but not as the address promised
+		}
 		return "[OK]", sOK
 	case checks.FAIL:
 		return "[FAIL]", sFail
@@ -721,7 +737,7 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 			sel = i
 		}
 	}
-	if sel == 1 { // first entry: show its section header too
+	if !slices.ContainsFunc(rows[:sel], func(r srow) bool { return r.hdr == "" }) { // first entry: show the headers above it too
 		sel = 0
 	}
 	nw := nameWidth(fr, func(yield func(string)) {
@@ -753,6 +769,10 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 	off := scrollOff(sel, len(rows), room)
 	for i := off; i < len(rows) && i-off < room; i++ {
 		r, y := rows[i], i-off+1
+		if r.host {
+			fr.put(y, colMark, r.hdr, sRowBold)
+			continue
+		}
 		if r.hdr != "" {
 			fr.put(y, 2, r.hdr, sCat)
 			continue
@@ -842,7 +862,7 @@ func (m *model) drawRemove(fr *frame) string {
 		it := m.items[r.it]
 		mk, ms, ts := "", sBg, sBg
 		for _, e := range m.snap.es {
-			if e.Type == it.typ && e.Name == it.name {
+			if (it.id != "" && e.ID == it.id) || (it.id == "" && e.Type == it.typ && e.Name == it.name) {
 				mk, ms = m.markOf(e)
 			}
 		}
@@ -948,6 +968,12 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 		rows = append(rows, labWrap(lab, "State", m.sinceText(e, now), vw)...)
 	}
 	rows = append(rows, labWrap(lab, "Last", e.Value, vw)...)
+	if e.Help != "" { // only set while the check fails
+		rows = append(rows, line("What to do:", sDdim))
+		for _, l := range wrapAll(e.Help, w-4, 3) {
+			rows = append(rows, line(l, sDlg))
+		}
+	}
 	if !e.LastRun.IsZero() {
 		rows = append(rows, lab("Checked", clock(e.LastRun, now), sDlg))
 	}
@@ -1054,6 +1080,9 @@ func (m *model) drawForm(fr *frame) (string, []kv) {
 		rows = append(rows, wrapRows(f.cur, w-4, sDdim)...)
 	}
 	rows = append(rows, line("", sDlg))
+	if f.res != "" {
+		rows = append(rows, wrapRows(f.res, w-4, sDlg)...)
+	}
 	switch {
 	case f.err != "":
 		rows = append(rows, wrapRows("Error: "+f.err, w-4, sDbold)...)

@@ -97,13 +97,13 @@ func TestStatusPanel130(t *testing.T) {
 		t.Fatalf("machine block not at the bottom:\n%s", f)
 	}
 	// cursor moves change block 1, the table keeps its cursor bar
-	r.send("jjjj")
+	r.send("jjjjjj") // cpu, disk, temperature, dns, router, then 192.0.2.12: nextcloud, photos
 	r.wait("Target    http://192.0.2.12:2283/")
 	f = r.frame()
 	has(t, f, "photos: failing since", "State     FAIL since", "(3 of 3 tries)", "Result    dial tcp 192.0.2.12:2283:", "Telegram  last message")
 	lacks(t, f, "Type      cpu")
 	has(t, r.raw(), "1;38;5;203;48;5;234mFAIL") // FAIL in the panel is red
-	r.send("j")
+	r.send("kkk")
 	r.wait("Type      tcp")
 	has(t, r.frame(), "Target    h:53", "Telegram  no message yet")
 	r.send("?")
@@ -156,7 +156,7 @@ func TestStatusPanelLow(t *testing.T) {
 		result  string
 	}{{24, true, "connection refused"}, {20, false, "connection refused"}, {23, true, "connect:~"}} {
 		r := start(t, &App{Path: footFixture(t), Size: func() (int, int) { return 130, c.h }, Proc: fakeProc(t, true)})
-		r.send("\rjjjj")
+		r.send("\rjjjjjj")
 		r.wait("Target    http://192.0.2.12:2283/")
 		f := r.frame()
 		rs := checkSize(t, f, 130, c.h)

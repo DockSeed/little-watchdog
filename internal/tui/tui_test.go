@@ -8,18 +8,21 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/DockSeed/little-watchdog/internal/checks"
 	"github.com/DockSeed/little-watchdog/internal/config"
 	"github.com/DockSeed/little-watchdog/internal/state"
 	"github.com/DockSeed/little-watchdog/internal/testfake"
@@ -285,7 +288,7 @@ func TestMenu80(t *testing.T) { // main menu
 	lacks(t, rs[0], "›")
 	has(t, rs[1], "╭", "Menu", "╮")
 	has(t, rs[2], "Status", "1 FAIL: photos")
-	has(t, rs[3], "Add check", "Website, port or host")
+	has(t, rs[3], "Add check", "Watch an address")
 	has(t, rs[4], "Remove check", "8 checks")
 	has(t, rs[5], "System checks", "4 on")
 	has(t, rs[7], "Telegram", "linked, nothing sent yet")
@@ -311,22 +314,30 @@ func TestStatus80(t *testing.T) { // status
 	has(t, rs[3], "This machine")
 	has(t, rs[4], "[OK]", "cpu", "5% (20s avg)")
 	has(t, rs[7], "Services")
-	has(t, rs[8], "[OK]    nextcloud     http   HTTP 200 in 2ms")
-	hasAt(t, rs[8], -3*time.Minute)
-	hasAt(t, rs[8], -29*time.Second)
-	has(t, f, "[FAIL]  photos", "disk /", "temperature")
-	hasAt(t, rs[9], -10*time.Minute) // FAIL: since the first failed check
+	// alone on their host: in the usual order; two on 192.0.2.12: under the host
+	has(t, rs[8], "[OK]    dns           tcp    open in 0ms")
+	has(t, rs[9], "[OK]    router        host   open in 2ms")
+	if got := rs[10]; got != "│    192.0.2.12"+strings.Repeat(" ", 64)+"│" {
+		t.Fatalf("host line: %q", got)
+	}
+	has(t, rs[11], "[OK]    nextcloud     http   HTTP 200 in 2ms")
+	hasAt(t, rs[11], -3*time.Minute)
+	hasAt(t, rs[11], -29*time.Second)
+	has(t, rs[12], "[FAIL]  photos")
+	has(t, f, "disk /", "temperature")
+	hasAt(t, rs[12], -10*time.Minute) // FAIL: since the first failed check
 	if i := strings.Index(f, "Services"); i < strings.Index(f, "temperature") || i > strings.Index(f, "router") {
 		t.Fatal("sections out of order")
 	}
 	has(t, rs[20], "cpu: OK since")
-	r.send("jjjj")
+	has(t, rs[22], "Enter details", "A add", "Esc menu")
+	r.send("jjjjjj")
 	r.wait("photos: failing since")
 	f = r.frame()
 	has(t, f, "3 of 3 tries", "Telegram sent at")
 	// cursor on photos: the FAIL row is the bar; move away and the mark turns red
-	r.send("j")
-	r.wait("dns: OK")
+	r.send("k")
+	r.wait("nextcloud: OK")
 	has(t, r.raw(), "1;38;5;203;48;5;234m[FAIL]")
 	r.send("\x1b")
 	r.wait("Menu")
@@ -336,7 +347,7 @@ func TestStatus80(t *testing.T) { // status
 
 func TestDetails80(t *testing.T) { // details dialog
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.send("\rjjjj\r")
+	r.send("\rjjjjjj\r")
 	r.wait("[ Close ]")
 	f := r.frame()
 	rs := check80(t, f)
@@ -350,21 +361,21 @@ func TestDetails80(t *testing.T) { // details dialog
 	r.finish()
 }
 
-func TestAdd80(t *testing.T) { // add check dialog
+func TestAdd80(t *testing.T) { // add check dialog: one form, address first
 	r := start(t, &App{Path: fixture(t), Size: sized})
 	r.send("j\r")
 	r.wait("Check and save")
 	f := r.frame()
 	rs := check80(t, f)
 	has(t, rs[0], "little-wd  › Add check")
-	has(t, f, "Kind", "(•) Website", "( ) Port", "( ) Host", "Name", "URL", "Text", "Checked once before saving.", "[ Check and save ]   [ Cancel ]")
-	has(t, rs[20], "Name: letters, digits and _ only")
-	has(t, rs[22], "Enter next", "Esc cancel")
-	r.send("\x1b[A\x1b[C") // kind: Port
-	r.wait("(•) Port")
-	lacks(t, r.frame(), "Text")
-	r.send("\t\t")
-	r.send("\x1b[Z\x1b[Z") // back to kind (Tab cycles, BackTab too)
+	has(t, f, "Address", "Name", "Checked once before saving.", "[ Check and save ]   [ Cancel ]")
+	lacks(t, f, "Kind", "Website", "( ) Port", "URL", "Text")
+	if strings.Index(f, "Address") > strings.Index(f, "Name ") {
+		t.Fatal("Name above Address")
+	}
+	has(t, f, "An IP or name is pinged") // focus starts on Address
+	r.send("\t")
+	r.wait("Optional, any text")
 	r.send("\x1b")
 	r.wait("Menu")
 	r.send("q")
@@ -652,13 +663,13 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	r := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN=1:a\n"), Size: sized})
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("n\r" + long)
+	r.send(long)
 	r.wait("end ")
 	f := r.frame()
 	rs := check80(t, f)
 	for _, row := range rs {
 		if strings.Contains(row, "end ") {
-			if !strings.Contains(row, "URL       <") {
+			if !strings.Contains(row, "Address   <") {
 				t.Fatalf("no start marker: %q", row)
 			}
 			if !strings.HasSuffix(strings.TrimRight(row, " │"), "end") && !strings.HasSuffix(strings.TrimRight(row, " │"), "_") {
@@ -673,8 +684,8 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 			nameRow = row
 		}
 	}
-	r.send("\x1b[A") // Name field: unfocused URL shows its beginning with '>'
-	r.wait("Name: letters")
+	r.send("\x1b[B") // Name field: unfocused Address shows its beginning with '>'
+	r.wait("Optional, any text")
 	has(t, r.frame(), "https://example.org/abcdefghij", ">")
 	if nameRow == "" {
 		t.Fatal("no name row")
@@ -683,9 +694,9 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	r2 := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN=1:a\n"), Size: sized, Getenv: env("TERM", "vt100")})
 	r2.send("j\r")
 	r2.wait("Check and save")
-	r2.send("n\r" + long)
+	r2.send(long)
 	r2.wait("end ")
-	has(t, r2.frame(), "URL       <")
+	has(t, r2.frame(), "Address   <")
 	r2.send("\x03")
 	r2.finish()
 	r.send("\x03")
@@ -727,62 +738,78 @@ func TestLongValuesDisplay(t *testing.T) {
 func TestAddWebsiteAndQuit(t *testing.T) {
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "hello world") }))
 	defer web.Close()
+	addr := strings.TrimPrefix(web.URL, "http://")
 	p := aliveCfg(t, "# my config\nTELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n")
 	pre, _, _ := strings.Cut(read(t, p), "# my config")
 	r := start(t, &App{Path: p})
 	r.wait("Add check")
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("my_web\r" + web.URL + "\rhello\r")
-	r.wait("Saved")
-	if f := r.frame(); !strings.Contains(f, "OK") || !strings.Contains(f, "applies it within one interval") {
-		t.Fatal(f)
-	}
-	want := pre + "# my config\nTELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nHTTP_MY_WEB=" + web.URL + " contains=hello\n"
+	r.send(addr + "\rImmich Fotos ä\r")
+	r.wait("Saved as Immich Fotos ä.")
+	f := r.frame()
+	has(t, f, "✓ answers, 200 in", "Next address, or Esc to leave.")
+	lacks(t, f, addr) // the form is empty for the next address
+	want := pre + "# my config\nTELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nHTTP_IMMICH_FOTOS_AE=" + web.URL + ` name="Immich Fotos ä" mode=lenient` + "\n"
 	if got := read(t, p); got != want {
 		t.Fatalf("%q", got)
 	}
 	if got := read(t, p+".bak"); !strings.Contains(got, "# my config") || strings.Contains(got, "HTTP_") {
 		t.Fatalf("bak %q", got)
 	}
-	r.send("x") // back to menu
+	r.send(web.URL + "/x\r\r") // a path is strict; the name comes from the address
+	r.wait("Saved as " + addr + "/x.")
+	key := "HTTP_" + strings.NewReplacer(".", "_", ":", "_").Replace(addr) + "_X="
+	if got := read(t, p); !strings.HasSuffix(got, key+web.URL+`/x name="`+addr+`/x" mode=strict`+"\n") {
+		t.Fatalf("%q", got)
+	}
+	r.send("\x1b") // Esc leaves
 	r.wait("Menu")
 	r.send("q")
 	r.finish()
 }
 
-func TestAddPortKindAndButtons(t *testing.T) {
-	p := newCfg(t, "TCP_A=h:1\n")
+// A failed check is saved at once; the form says why it fails and is cleared.
+func TestAddFailedIsSavedAtOnce(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close() // nothing listens there now
+	p := aliveCfg(t, "TCP_A=h:1\n")
 	r := start(t, &App{Path: p})
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("\x1b[A \x1b[B") // kind: space picks Port; back to Name
-	r.wait("( ) Website  (•) Port")
-	r.send("a\rh:2\r") // name A exists
-	r.wait("exists, remove it first")
-	r.send("\t\t\r") // Tab to [ Cancel ]... fields: name, target, then buttons
-	r.wait("Menu")
-	if read(t, p) != "TCP_A=h:1\n" {
-		t.Fatal("config changed")
+	r.send(addr + "\r\r")
+	r.wait("it shows as failing until it answers.")
+	has(t, r.frame(), "✗ connection refused", "Saved as", "Next address")
+	if got := read(t, p); !strings.Contains(got, "HTTP_127_0_0_1_") || !strings.Contains(got, "mode=lenient") {
+		t.Fatalf("%q", got)
 	}
 	r.send("\x03")
 	r.finish()
 }
 
+// Invalid addresses never reach the config; a name in use gets _2.
 func TestAddInvalidStaysInForm(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer web.Close()
 	p := newCfg(t, "TCP_A=h:1\n")
 	r := start(t, &App{Path: p})
 	r.send("j\r")
-	r.send("\x1b[A\x1b[C\x1b[C\x1b[B") // up to the kind, Host, down to Name
-	r.wait("(•) Host")
-	r.send("a\rh:2\r")
-	r.wait("Error: ")
-	r.send("\x1b[A\x7fb\r") // name back to "b", target stays
-	r.send("\x7f\x7fnonsense\r")
-	r.wait("Error: config line 2: HOST_B")
+	r.wait("Check and save")
+	r.send("host:99999\r\r")
+	r.wait("Error: Address: port")
+	r.send("\x1b[A" + strings.Repeat("\x7f", 10) + "ftp://x\r\r")
+	r.wait("Error: Address: a web address starts with http://")
 	if read(t, p) != "TCP_A=h:1\n" {
 		t.Fatal("config changed")
 	}
+	r.send("\x1b[A" + strings.Repeat("\x7f", 7) + web.URL + "\ra\r") // name a is taken by TCP_A
+	r.wait("Saved as a.")
+	if got := read(t, p); got != "TCP_A=h:1\nHTTP_A_2="+web.URL+` name="a" mode=lenient`+"\n" {
+		t.Fatalf("%q", got)
+	}
+	r.send("\t\t\t\r") // Address, Name, buttons: Tab to [ Cancel ]
+	r.wait("Menu")
 	r.send("\x03")
 	r.finish()
 }
@@ -954,7 +981,7 @@ func TestLargeTerminalFillsWindow(t *testing.T) {
 	r.finish()
 }
 
-func TestEscDuringCheckSavesAndRestartsNothing(t *testing.T) {
+func TestEscDuringCheckKeepsTheSavedCheck(t *testing.T) {
 	started := make(chan struct{}, 1)
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started <- struct{}{}
@@ -966,19 +993,17 @@ func TestEscDuringCheckSavesAndRestartsNothing(t *testing.T) {
 	r := start(t, &App{Path: p})
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("w\r" + web.URL + "\r\r")
+	r.send(web.URL + "\r\r")
 	<-started
-	r.wait("Esc cancels")
+	r.wait("Checking " + web.URL)
+	r.send("x\r") // ignored while the check runs
 	r.send("\x1b")
-	r.wait("Cancelled")
+	r.wait("Menu")
 	time.Sleep(100 * time.Millisecond)
-	if read(t, p) != orig {
-		t.Fatalf("config %q", read(t, p))
+	// saved before the check ran: Esc leaves, the address is not lost
+	if got := read(t, p); !strings.HasPrefix(got, orig) || !strings.Contains(got, web.URL+" ") {
+		t.Fatalf("config %q", got)
 	}
-	if _, err := os.Stat(p + ".bak"); err == nil {
-		t.Fatal("backup written")
-	}
-	r.send("x")
 	r.send("\x03")
 	r.finish()
 }
@@ -1061,28 +1086,28 @@ func TestReadOnlyModeWhenDirNotWritable(t *testing.T) {
 	}
 }
 
-// A line written by a newer version keeps its options; a text starting with a quote is saved quoted.
-func TestAddKeepsNewerOptionsAndQuotes(t *testing.T) {
+// Existing lines keep their options; names with blanks show in the remove list.
+func TestAddKeepsOtherLines(t *testing.T) {
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `{"s":"hello"}`) }))
 	defer web.Close()
-	newer := `HTTP_IMMICH=http://192.0.2.9:2283 name="Immich Fotos" mode=lenient`
-	p := aliveCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n"+newer+"\n")
+	older := `HTTP_IMMICH=http://192.0.2.9:2283 name="Immich Fotos" mode=lenient future=1`
+	p := aliveCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n"+older+"\nHTTP_OLD="+web.URL+" contains=hello\n")
 	r := start(t, &App{Path: p})
 	r.wait("Add check")
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("my_web\r" + web.URL + "\r\"hello\"\r")
-	r.wait("Saved")
-	if f := r.frame(); !strings.Contains(f, "OK") {
-		t.Fatal(f)
-	}
+	r.send(web.URL + "\rmy web\r")
+	r.wait("Saved as my web.")
 	got := read(t, p)
-	if !strings.Contains(got, "\n"+newer+"\n") || !strings.HasSuffix(got, "HTTP_MY_WEB="+web.URL+` contains="\"hello\""`+"\n") {
+	if !strings.Contains(got, "\n"+older+"\n") || !strings.Contains(got, "\nHTTP_OLD="+web.URL+" contains=hello\n") || !strings.HasSuffix(got, "HTTP_MY_WEB="+web.URL+` name="my web" mode=lenient`+"\n") {
 		t.Fatalf("%q", got)
 	}
-	r.send("x")
+	r.send("\x1b")
 	r.wait("Menu")
-	r.send("q")
+	r.send("j\r") // Remove check
+	r.wait("Immich Fotos")
+	has(t, r.frame(), "my web", "old")
+	r.send("\x03")
 	r.finish()
 }
 
@@ -1116,4 +1141,57 @@ func TestRemoveListUnknownMark(t *testing.T) {
 		r.send("\x03")
 		r.finish()
 	}
+}
+
+func TestDetailsHelp80(t *testing.T) { // details dialog of a failing check with its "what to do"
+	cfg := fixture(t)
+	sf := cfgValue(t, cfg, "STATE_FILE")
+	b, err := os.ReadFile(sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	help := checks.Help(checks.KindRefused)
+	b = []byte(strings.Replace(string(b), `"name":"photos",`, `"name":"photos","help":`+strconv.Quote(help)+`,`, 1))
+	if err := os.WriteFile(sf, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := start(t, &App{Path: cfg, Size: sized})
+	r.send("\rjjjjjj\r")
+	r.wait("[ Close ]")
+	f := r.frame()
+	rs := check80(t, f)
+	has(t, f, "connection refused", "What to do:", "Maybe the service is stopped, or it listens", "sent at")
+	top, bottom := -1, -1
+	for i, l := range rs {
+		if strings.Contains(l, "╭") && top < 0 {
+			top = i
+		}
+		if strings.Contains(l, "╰") {
+			bottom = i
+		}
+	}
+	if top < 1 || bottom < 0 || bottom > 21 { // the dialog fits between the header and the key line
+		t.Fatalf("dialog rows %d..%d:\n%s", top, bottom, f)
+	}
+	has(t, r.raw(), "38;5;245;48;5;236mWhat to do:")
+	r.send("\r")
+	r.wait("↑↓ move  Enter details")
+	r.send("\x03")
+	r.finish()
+}
+
+// cfgValue is the value of key in the config file at p.
+func cfgValue(t *testing.T, p, key string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, key+"="); ok {
+			return v
+		}
+	}
+	t.Fatalf("%s not in %s", key, p)
+	return ""
 }

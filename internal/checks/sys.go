@@ -49,7 +49,7 @@ func notMounted(path string) (bool, error) {
 
 func (d *Disk) Run(ctx context.Context) Result {
 	if !d.busy.CompareAndSwap(false, true) {
-		return Result{Status: FAIL, NoAnswer: true, Detail: "the last disk query is still stuck", Value: "hanging"}
+		return Result{Status: FAIL, NoAnswer: true, Detail: "the last disk query is still stuck", Value: "hanging", Help: Help(KindDiskStuck)}
 	}
 	defer d.busy.Store(false)
 	var st syscall.Statfs_t
@@ -58,12 +58,12 @@ func (d *Disk) Run(ctx context.Context) Result {
 		sf = syscall.Statfs
 	}
 	if nm, err := notMounted(d.Path); err != nil {
-		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err)}
+		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err), Help: Help(KindDiskRead)}
 	} else if nm {
-		return Result{Status: FAIL, Detail: d.Path + " is not mounted", Value: "not mounted"}
+		return Result{Status: FAIL, Detail: d.Path + " is not mounted", Value: "not mounted", Help: Help(KindDiskMount)}
 	}
 	if err := sf(d.Path, &st); err != nil {
-		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err)}
+		return Result{Status: FAIL, Detail: "cannot read " + d.Path + ": " + short(err), Value: short(err), Help: Help(KindDiskRead)}
 	}
 	if st.Blocks == 0 {
 		return Result{Status: UNKNOWN, Value: "no blocks"}
@@ -71,7 +71,7 @@ func (d *Disk) Run(ctx context.Context) Result {
 	free := float64(st.Bavail) / float64(st.Blocks) * 100
 	val := fmt.Sprintf("%.0f%% free", free)
 	if free < d.MinFreePct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% free, limit %g%%", free, d.MinFreePct), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% free, limit %g%%", free, d.MinFreePct), Value: val, Help: Help(KindDiskFull)}
 	}
 	return Result{Status: OK, Value: val}
 }
@@ -133,7 +133,7 @@ func (m *Mem) Run(ctx context.Context) Result {
 	p := float64(avail) / float64(total) * 100
 	val := fmt.Sprintf("%.0f%% available", p)
 	if p < m.MinAvailPct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% memory available, limit %g%%", p, m.MinAvailPct), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% memory available, limit %g%%", p, m.MinAvailPct), Value: val, Help: Help(KindMem)}
 	}
 	return Result{Status: OK, Value: val}
 }
@@ -211,7 +211,7 @@ func (t *Temp) Run(ctx context.Context) Result {
 	val := fmt.Sprintf("%.1f C", v)
 	switch {
 	case v > t.MaxC:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C, limit %g C", v, t.MaxC), Value: val}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C, limit %g C", v, t.MaxC), Value: val, Help: Help(KindTemp)}
 	case v >= t.MaxC-5:
 		return Result{Status: OK, Value: val, Hold: true}
 	}
@@ -321,7 +321,7 @@ func (c *CPU) Run(ctx context.Context) Result {
 	case !full:
 		return Result{Status: UNKNOWN, Value: fmt.Sprintf("%.0f%% (%s of %s avg)", p, Compact(age), Compact(c.Window))}
 	case p > c.MaxPct:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s, limit %g%%", p, Compact(c.Window), c.MaxPct), Value: label}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s, limit %g%%", p, Compact(c.Window), c.MaxPct), Value: label, Help: Help(KindCPU)}
 	case p >= c.MaxPct-10:
 		return Result{Status: OK, Value: label, Hold: true}
 	}

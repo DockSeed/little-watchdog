@@ -275,22 +275,27 @@ func TestLenientStateFile(t *testing.T) {
 
 func TestCheckOptions(t *testing.T) {
 	tests := []struct {
-		name, in, target, contains string
-		warns                      int
+		name, in, target, contains, label, mode string
+		warns                                   int
 	}{
-		{"v0.4.0 line", `HTTP_A=http://h:2283 name="Immich Fotos" mode=lenient`, "http://h:2283", "", 2},
-		{"contains legacy", "HTTP_A=http://h/x contains=hello world", "http://h/x", "hello world", 0},
-		{"contains takes the rest", "HTTP_A=http://h/x contains=ok mode=lenient", "http://h/x", "ok mode=lenient", 0},
-		{"options before contains", `HTTP_A=http://h/x name="N" contains=a b`, "http://h/x", "a b", 1},
-		{"contains quoted", `HTTP_A=http://h/x contains="a b" mode=lenient`, "http://h/x", "a b", 1},
-		{"quote escape", `HTTP_A=http://h/x contains="say \"hi\" \\o/"`, "http://h/x", `say "hi" \o/`, 0},
-		{"bad quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a" b`, "http://h/x", `"a" b`, 0},
-		{"open quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a b`, "http://h/x", `"a b`, 0},
-		{"tabs", "HTTP_A=http://h/x\tmode=lenient", "http://h/x", "", 1},
-		{"value with =", "HTTP_A=http://h/x opt=a=b", "http://h/x", "", 1},
-		{"tcp options", `TCP_A=192.0.2.5:22 name="SSH box" x=1`, "192.0.2.5:22", "", 2},
-		{"host options", `HOST_A=nas:445 name="NAS"`, "nas:445", "", 1},
-		{"tcp contains unknown", "TCP_A=h:1 contains=x", "h:1", "", 1},
+		{"v0.4.0 line", `HTTP_A=http://h:2283 name="Immich Fotos" mode=lenient`, "http://h:2283", "", "Immich Fotos", "lenient", 0},
+		{"contains legacy", "HTTP_A=http://h/x contains=hello world", "http://h/x", "hello world", "", "", 0},
+		{"contains takes the rest", "HTTP_A=http://h/x contains=ok mode=lenient", "http://h/x", "ok mode=lenient", "", "", 0},
+		{"options before contains", `HTTP_A=http://h/x name="N" contains=a b`, "http://h/x", "a b", "N", "", 0},
+		{"contains quoted", `HTTP_A=http://h/x contains="a b" mode=strict`, "http://h/x", "a b", "", "strict", 0},
+		{"quote escape", `HTTP_A=http://h/x contains="say \"hi\" \\o/"`, "http://h/x", `say "hi" \o/`, "", "", 0},
+		{"bad quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a" b`, "http://h/x", `"a" b`, "", "", 0},
+		{"open quote falls back to 0.3.0", `HTTP_A=http://h/x contains="a b`, "http://h/x", `"a b`, "", "", 0},
+		{"tabs", "HTTP_A=http://h/x\tmode=lenient", "http://h/x", "", "", "lenient", 0},
+		{"value with =", "HTTP_A=http://h/x opt=a=b", "http://h/x", "", "", "", 1},
+		{"unknown mode", "HTTP_A=http://h/x mode=fuzzy", "http://h/x", "", "", "", 1},
+		{"tcp options", `TCP_A=192.0.2.5:22 name="SSH box" x=1`, "192.0.2.5:22", "", "SSH box", "", 1},
+		{"host options", `HOST_A=nas:445 name="NAS"`, "nas:445", "", "NAS", "", 0},
+		{"tcp contains unknown", "TCP_A=h:1 contains=x", "h:1", "", "", "", 1},
+		{"tcp mode unknown", "TCP_A=h:1 mode=lenient", "h:1", "", "", "", 1},
+		{"ping", `PING_NAS=192.0.2.5 name="Die Kiste ä"`, "192.0.2.5", "", "Die Kiste ä", "", 0},
+		{"ping name", "PING_NAS=nas.lan", "nas.lan", "", "", "", 0},
+		{"ping v6", "PING_NAS=fe80::1", "fe80::1", "", "", "", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -299,11 +304,11 @@ func TestCheckOptions(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := c.Checks[0]
-			if s.Target != tt.target || s.Contains != tt.contains || len(c.Warnings) != tt.warns {
-				t.Fatalf("got %q %q %q", s.Target, s.Contains, c.Warnings)
+			if s.Target != tt.target || s.Contains != tt.contains || s.Label != tt.label || s.Mode != tt.mode || len(c.Warnings) != tt.warns {
+				t.Fatalf("got %q %q %q %q %q", s.Target, s.Contains, s.Label, s.Mode, c.Warnings)
 			}
 			for _, w := range c.Warnings {
-				if !strings.Contains(w, "line 1: ") || !strings.Contains(w, "unknown option") {
+				if !strings.Contains(w, "line 1: ") || !strings.Contains(w, "unknown") {
 					t.Fatalf("warning %q", w)
 				}
 			}
@@ -322,6 +327,12 @@ func TestCheckOptionErrors(t *testing.T) {
 		`TCP_A=h:1 name="open`,
 		"TCP_A=h:1 junk",
 		`HOST_A=h:1 name="a"b`,
+		`HTTP_A=http://x name=""`,
+		"PING_A=192.0.2.5:22",
+		"PING_A=http://x",
+		"PING_A=a b",
+		"PING_A=",
+		"PING_=h",
 	} {
 		if _, err := Parse(strings.NewReader(in+"\n"), false); err == nil {
 			t.Errorf("%s: no error", in)

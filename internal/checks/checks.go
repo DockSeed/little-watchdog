@@ -31,6 +31,8 @@ type Result struct {
 	Detail   string // reason for FAIL, e.g. "HTTP 502"
 	Value    string // last measured value for the status table
 	NoAnswer bool   // message becomes "no answer since X"
+	Help     string // what to do about a FAIL: a fixed hint by kind ("" when none fits)
+	Odd      bool   // OK, but not what the address promised (a port that answers without a website)
 	// Hold: OK, but inside the hysteresis band. A check currently reported
 	// as FAIL stays FAIL until a sample is outside the band.
 	Hold bool
@@ -85,7 +87,7 @@ collect:
 	}
 	for i := range res {
 		if !done[i] {
-			res[i] = Result{Status: FAIL, NoAnswer: true, Detail: "no answer within " + Dur(timeout), Value: "timeout"}
+			res[i] = Result{Status: FAIL, NoAnswer: true, Detail: "no answer within " + Dur(timeout), Value: "timeout", Help: Help(KindTimeout)}
 		}
 	}
 	return res
@@ -97,11 +99,13 @@ func Build(cfg *config.Config, logf func(string, ...any)) []Check {
 	for _, s := range cfg.Checks {
 		switch s.Type {
 		case "http":
-			cs = append(cs, NewHTTP(s.Name, s.Target, s.Contains, cfg.Timeout))
+			cs = append(cs, NewHTTP(s.Name, s.Target, s.Contains, cfg.Timeout).SetMode(s.Label, s.Mode))
 		case "tcp":
-			cs = append(cs, &TCP{name: s.Name, addr: s.Target, timeout: cfg.Timeout})
+			cs = append(cs, &TCP{name: s.Name, label: s.Label, addr: s.Target, timeout: cfg.Timeout})
 		case "host":
-			cs = append(cs, &TCP{name: s.Name, addr: s.Target, timeout: cfg.Timeout, host: true})
+			cs = append(cs, &TCP{name: s.Name, label: s.Label, addr: s.Target, timeout: cfg.Timeout, host: true})
+		case "ping":
+			cs = append(cs, NewPing(s.Name, s.Shown(), s.Target, cfg.Timeout))
 		}
 	}
 	if cfg.DiskMinFree > 0 {

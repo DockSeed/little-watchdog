@@ -129,7 +129,7 @@ func (a *App) apply(nc *config.Config) {
 // sameSetup reports whether c would behave exactly like its predecessor under nc.
 func sameSetup(old, nc *config.Config, c checks.Check) bool {
 	switch c.Type() {
-	case "http", "tcp", "host":
+	case "http", "tcp", "host", "ping":
 		return old.Timeout == nc.Timeout && spec(old, c) == spec(nc, c)
 	case "disk":
 		return old.DiskMinFree == nc.DiskMinFree
@@ -145,7 +145,7 @@ func sameSetup(old, nc *config.Config, c checks.Check) bool {
 
 func spec(cfg *config.Config, c checks.Check) config.CheckSpec {
 	for _, s := range cfg.Checks {
-		if s.Type == c.Type() && s.Name == c.Name() {
+		if s.ID() == c.ID() {
 			return s
 		}
 	}

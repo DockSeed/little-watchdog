@@ -17,6 +17,7 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 | `HTTP_<NAME>` | | `url`, or `url contains=TEXT`. OK on 200 to 399. |
 | `TCP_<NAME>` | | `host:port` accepts a connection. |
 | `HOST_<NAME>` | | `host:port` answers (refused counts as alive). |
+| `PING_<NAME>` | | IP address or host name answers ping (ICMP echo). |
 | `DISK_PATHS` | `/` | Mount points, comma separated. |
 | `DISK_MIN_FREE_PCT` | `10` | Alarm below this free space. |
 | `MEM_MIN_AVAIL_PCT` | `5` | Alarm below this available memory. |
@@ -35,6 +36,26 @@ blanks"`, separated by blanks; inside quotes `\"` is a quote and `\\` a
 backslash. Keys are lower case. An unknown key is logged as a warning and
 skipped, so a line written by a newer version still starts. `contains=TEXT`
 without quotes takes the rest of the line, so put it last or quote it.
+
+| Option | For | Meaning |
+|---|---|---|
+| `name="Immich Fotos"` | all checks | Name shown in `little-wd` and in Telegram messages; any text. Without it the name is `<NAME>` in lower case. |
+| `mode=lenient` | `HTTP_` | Follows up to 5 redirects; any answer below 500 is OK, and a port that answers but is no website ("answers, no website"). An `http://` address on a port that speaks TLS is asked over `https://`, without a certificate check. |
+| `mode=strict` | `HTTP_` | Follows up to 5 redirects; only 200 to 299 is OK. |
+
+Without `mode=` an `HTTP_` line keeps the old rule: 200 to 399, no redirects
+followed. Example lines as `little-wd` writes them:
+
+```
+PING_NAS=192.168.1.10 name="NAS"
+HTTP_IMMICH_FOTOS=http://192.168.1.10:2283 name="Immich Fotos" mode=lenient
+HTTP_DOCKSEED_DE_HEALTH=https://dockseed.de/health name="dockseed.de/health" mode=strict
+```
+
+Ping needs no capability: little-wd uses the unprivileged ICMP socket, which
+Linux allows to the groups in `net.ipv4.ping_group_range` (systemd sets
+`0 2147483647`, all groups). With `1 0` (nobody) the check says so. Versions
+before 0.4.0 skip `PING_` lines with a warning.
 
 Where in `little-wd` (it checks the values with the same limits):
 

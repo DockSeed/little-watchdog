@@ -4,6 +4,8 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +21,10 @@ func TestSavedSaysSoWhenNoDaemonRuns(t *testing.T) {
 	r := start(t, &App{Path: p})
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("\x1b[A \x1b[B") // kind Port, back to Name
-	r.wait("(•) Port")
-	r.send("x\rh:2\r")
-	r.wait("Saved. The daemon does not seem to run")
+	web := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer web.Close()
+	r.send(web.URL + "\r\r")
+	r.wait("start little-watchdog.")
 	lacks(t, r.frame(), "applies it within one interval")
 	r.send("\x03")
 	r.finish()
@@ -45,14 +47,13 @@ func TestSaveRefusedWhenFileChangedUnderneath(t *testing.T) {
 	os.WriteFile(p, []byte("TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nHTTP_X=http://x/\n"), 0o600) // an editor
 	r.send("j\r")
 	r.wait("Check and save")
-	r.send("\x1b[A \x1b[B")
-	r.wait("(•) Port")
-	r.send("y\rh:2\r")
+	web := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer web.Close()
+	r.send(web.URL + "\ry\r")
 	r.wait("changed on disk")
-	if !strings.Contains(read(t, p), "HTTP_X") || strings.Contains(read(t, p), "TCP_Y") {
+	if !strings.Contains(read(t, p), "HTTP_X") || strings.Contains(read(t, p), "HTTP_Y") {
 		t.Fatal(read(t, p))
 	}
-	r.send("x")
 	r.send("\x03")
 	r.finish()
 }

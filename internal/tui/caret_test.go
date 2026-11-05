@@ -53,12 +53,12 @@ func TestCaretInEmptyFieldAfterTypingAndMovingLeft(t *testing.T) {
 
 func TestCaretOnlyInTheFocusedField(t *testing.T) {
 	r := addRig(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN=1:a\n")})
-	r.send("ab\x1b[B") // URL field focused, Name unfocused
-	r.wait("The page address")
+	r.send("ab\x1b[B") // Name field focused, Address unfocused
+	r.wait("Optional, any text")
 	if carets(r.raw()) != 1 || regexp.MustCompile(`ab`+caretSGR).MatchString(r.raw()) {
-		t.Fatalf("caret stays in the Name field: %q", r.raw())
+		t.Fatalf("caret stays in the Address field: %q", r.raw())
 	}
-	r.send("\x1b[B\x1b[B") // Text, then Check and save: a button
+	r.send("\x1b[B") // Check and save: a button
 	r.wait("[ Check and save ]")
 	for i := 0; i < 400 && carets(r.raw()) != 0; i++ {
 		time.Sleep(10 * time.Millisecond)

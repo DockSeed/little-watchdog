@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-05
+
 ### Config
 
 - Check values may carry options after the URL or host:port: `key=value` or

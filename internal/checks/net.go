@@ -14,6 +14,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -54,7 +56,7 @@ func NewHTTP(name, url, contains string, timeout time.Duration) *HTTP {
 		MaxResponseHeaderBytes: 64 << 10,
 		TLSHandshakeTimeout:    timeout,
 		ResponseHeaderTimeout:  timeout,
-		DialContext:            (&net.Dialer{Timeout: timeout}).DialContext,
+		DialContext:            (&net.Dialer{Timeout: timeout, ControlContext: guard}).DialContext,
 	}
 	return &HTTP{name: name, url: url, contains: contains, timeout: timeout, client: &http.Client{
 		Transport:     tr,
@@ -86,12 +88,52 @@ var lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
 	return net.DefaultResolver.LookupIP(ctx, "ip", host)
 }
 
-// internalIP: loopback, private (RFC 1918, ULA), shared (CGNAT, Tailscale), link-local or unspecified.
+// internalIP: an address a public server must not send the check to: loopback, private
+// (RFC 1918, ULA), shared (CGNAT, Tailscale), link-local, unspecified, "this network" (0/8),
+// IETF protocol assignments (192.0.0.0/24), benchmarking (198.18.0.0/15), multicast and
+// broadcast, and an IPv4 address carried inside NAT64, 6to4 or Teredo.
 func internalIP(ip net.IP) bool {
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1]&0xc0 == 64 {
+	a, ok := netip.AddrFromSlice(ip)
+	return !ok || internalAddr(a)
+}
+
+var internalPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("255.255.255.255/32"),
+}
+
+func internalAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	if a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
+		a.IsMulticast() || a.IsUnspecified() {
 		return true
 	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	for _, p := range internalPrefixes {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	if !a.Is6() {
+		return false
+	}
+	b := a.As16()
+	var v4 [4]byte
+	switch {
+	case b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b: // NAT64 64:ff9b::/96 and /48
+		copy(v4[:], b[12:16])
+	case b[0] == 0x20 && b[1] == 0x02: // 6to4 2002::/16
+		copy(v4[:], b[2:6])
+	case b[0] == 0x20 && b[1] == 0x01 && b[2] == 0 && b[3] == 0: // Teredo 2001::/32, client inverted
+		for i := range v4 {
+			v4[i] = b[12+i] ^ 0xff
+		}
+	default:
+		return false
+	}
+	return internalAddr(netip.AddrFrom4(v4))
 }
 
 // internalHost: host is, or resolves to, an internal address (any one of them counts).
@@ -109,6 +151,30 @@ func internalHost(ctx context.Context, host string) bool {
 		}
 	}
 	return false
+}
+
+// errInternalAddr: a check that started at a public address was about to connect to an internal
+// one (a redirect, or a name whose DNS answer changed to an internal address).
+var errInternalAddr = errors.New("a public address led to an internal one, refused")
+
+// publicOrigin marks a run whose target is a public address (context key).
+type publicOrigin struct{}
+
+// refused reports whether a connection to addr must not happen (replaced in tests).
+var refused = func(addr netip.AddrPort) bool { return internalAddr(addr.Addr()) }
+
+// guard runs before every connect of the dialer, on the address it is about to connect to.
+// In a run with a public origin an internal address is refused there, after DNS and after
+// any redirect, so a DNS answer that changes (rebinding) cannot reach the LAN.
+func guard(ctx context.Context, _, address string, _ syscall.RawConn) error {
+	if ctx.Value(publicOrigin{}) == nil {
+		return nil
+	}
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil || refused(ap) {
+		return errInternalAddr
+	}
+	return nil
 }
 
 // followRedirect follows at most maxRedirects. A target that is not internal itself may not
@@ -246,6 +312,9 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 		}
 		return resp, connected, err
 	}
+	if u, err := url.Parse(h.url); err == nil && !internalHost(ctx, u.Hostname()) {
+		ctx = context.WithValue(ctx, publicOrigin{}, true)
+	}
 	first, firstURL := h.client, h.url
 	var second *http.Client
 	secondURL := ""
@@ -284,6 +353,9 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 		if errors.Is(err, errInternalRedirect) {
 			return Result{Status: FAIL, Detail: errInternalRedirect.Error(), Value: "redirect refused"}
 		}
+		if errors.Is(err, errInternalAddr) {
+			return Result{Status: FAIL, Detail: errInternalAddr.Error(), Value: "internal address refused"}
+		}
 		if h.mode == config.ModeLenient && notWeb(ctx, err, connected) {
 			return Result{Status: OK, Odd: true, Value: "answers, no website"}
 		}
@@ -315,7 +387,7 @@ func notWeb(ctx context.Context, err error, connected bool) bool {
 	var hn x509.HostnameError
 	var ci x509.CertificateInvalidError
 	switch {
-	case !connected, ctx.Err() != nil, isTimeout(err), errors.Is(err, errRedirects), errors.Is(err, errInternalRedirect), errors.Is(err, errBadRequest):
+	case !connected, ctx.Err() != nil, isTimeout(err), errors.Is(err, errRedirects), errors.Is(err, errInternalRedirect), errors.Is(err, errInternalAddr), errors.Is(err, errBadRequest):
 		return false
 	case errors.As(err, &cv), errors.As(err, &ua), errors.As(err, &hn), errors.As(err, &ci):
 		return false

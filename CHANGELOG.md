@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Security
+
+- A web check whose target is a public address checks every connection on
+  the address it is about to connect to, after DNS and after redirects. A DNS
+  answer that changes to an internal address (DNS rebinding) is refused: "a
+  public address led to an internal one, refused". Internal now also covers
+  0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, multicast, broadcast, and IPv4
+  inside NAT64, 6to4 and Teredo addresses.
+- The unit adds `SocketBindDeny=any` (the daemon never listens) and
+  `PrivateUsers=yes`. Tested with systemd 257: checks, state on disk and in
+  RAM, reload and the 24 h history work as before.
+
 ## [0.5.0] - 2026-11-05
 
 ### little-wd

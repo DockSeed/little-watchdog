@@ -55,6 +55,10 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 # no AF_UNIX: the resolver is pure Go and logging uses the inherited stderr
 RestrictAddressFamilies=AF_INET AF_INET6
+# nothing here listens: no bind() to any port (ping, HTTP and Telegram only connect)
+SocketBindDeny=any
+# a user namespace with only root, little-wd and its group mapped
+PrivateUsers=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources

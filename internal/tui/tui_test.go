@@ -115,6 +115,13 @@ func (r *rig) frame() string { return sgrRe.ReplaceAllString(r.raw(), "") }
 
 func (r *rig) send(s string) { r.t.Helper(); r.in.Write([]byte(s)) }
 
+// skipWelcome leaves the first-start greeting by Esc; Telegram setup follows.
+func (r *rig) skipWelcome() {
+	r.t.Helper()
+	r.wait("Welcome to")
+	r.send("\x1b")
+}
+
 func (r *rig) wait(sub string) {
 	r.t.Helper()
 	for i := 0; i < 400; i++ {
@@ -501,6 +508,7 @@ func TestTelegram80(t *testing.T) { // Telegram setup
 	defer srv.Close()
 	p := etcPath(t)
 	r := start(t, &App{Path: p, APIURL: srv.URL, PollWindow: 5 * time.Minute, Size: sized})
+	r.skipWelcome()
 	r.wait("Bot token")
 	check80(t, r.frame())
 	r.send(tok + "\r")
@@ -525,6 +533,7 @@ func TestTelegramWebhookDialog(t *testing.T) {
 	defer srv.Close()
 	f.Set(func(f *testfake.Telegram) { f.Webhook = "https://example.org/hook" })
 	r := start(t, &App{Path: filepath.Join(t.TempDir(), "lw.env"), APIURL: srv.URL, PollWindow: time.Minute, Size: sized})
+	r.skipWelcome()
 	r.send("1:a\r")
 	r.wait("[ Delete webhook ]")
 	has(t, r.frame(), "Delete the webhook now?", "[ Cancel ]")
@@ -620,6 +629,7 @@ func TestASCIIMarks(t *testing.T) {
 	_ = f
 	r := start(t, &App{Path: filepath.Join(t.TempDir(), "lw.env"), APIURL: srv.URL, PollWindow: time.Minute, Size: sized,
 		Getenv: env("TERM", "vt100")})
+	r.skipWelcome()
 	r.send("1:a\r")
 	r.wait("/start ")
 	has(t, r.frame(), "[x] 1  Bot token", "[ ] 3  Link your chat")
@@ -869,6 +879,7 @@ func TestTelegramFirstRun(t *testing.T) {
 	f.Set(func(f *testfake.Telegram) { f.Webhook = "https://example.org/hook" })
 	p := etcPath(t)
 	r := start(t, &App{Path: p, APIURL: srv.URL, PollWindow: 5 * time.Second})
+	r.skipWelcome()
 	r.wait("Bot token")
 	r.send(tok + "\r")
 	if strings.Contains(r.frame(), tok) {
@@ -902,6 +913,7 @@ func TestTelegramEscCancels(t *testing.T) {
 	defer srv.Close()
 	p := filepath.Join(t.TempDir(), "lw.env")
 	r := start(t, &App{Path: p, APIURL: srv.URL, PollWindow: time.Minute})
+	r.skipWelcome()
 	r.send("1:a\r")
 	r.wait("Esc cancel")
 	r.send("\x1b")

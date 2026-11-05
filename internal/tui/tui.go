@@ -42,8 +42,9 @@ const (
 	scMenu screen = iota
 	scStatus
 	scRemove
-	scSys   // limits of the own-host checks
-	scBlank // empty frame named by flow, behind add / telegram / dead-man dialogs
+	scSys     // limits of the own-host checks
+	scBlank   // empty frame named by flow, behind add / telegram / dead-man dialogs
+	scWelcome // first start only: greeting and dog, then the address form and Telegram
 )
 
 // dlg is the dialog on top of the screen, if any.
@@ -95,6 +96,7 @@ type form struct {
 	busy   context.CancelFunc   // set while the form's check runs; Esc calls it
 	back   screen               // where Esc and Cancel lead
 	pre    []string             // field values to start with, again after each save
+	then   func()               // runs after the form is left (first start: on to Telegram)
 }
 
 func (f *form) radio() int {
@@ -235,7 +237,7 @@ func (a *App) Loop(ctx context.Context, in io.Reader, out io.Writer) (err error)
 	io.WriteString(out, "\x1b[?1049h\x1b[?25l")
 	m.refresh()
 	if !f.Exists() && md == modeFull {
-		m.telegramForm()
+		m.scr, m.flow = scWelcome, "Welcome" // no config file yet: nobody has set this up
 	}
 	keys := make(chan Key)
 	go readKeys(in, keys, m.done)
@@ -346,6 +348,8 @@ func (m *model) key(k Key) {
 		return
 	}
 	switch m.scr {
+	case scWelcome:
+		m.welcomeKey(k)
 	case scMenu:
 		m.menuKey(k)
 	case scStatus:
@@ -354,6 +358,16 @@ func (m *model) key(k Key) {
 		m.listKey(k)
 	case scSys:
 		m.sysKey(k)
+	}
+}
+
+// welcomeKey: Enter goes on to the address form, Esc skips it; Telegram setup follows either way.
+func (m *model) welcomeKey(k Key) {
+	switch {
+	case k.Code == Enter:
+		m.addForm("").then = m.telegramForm
+	case isBack(k):
+		m.telegramForm()
 	}
 }
 
@@ -505,7 +519,7 @@ func (m *model) formKey(k Key) {
 			f.busy()
 			f.busy = nil
 		}
-		m.dk, m.scr = dNone, f.back
+		m.leave(f)
 	case k.Code == CtrlR && f.secret:
 		f.reveal = !f.reveal
 	case k.Code == Up:
@@ -535,11 +549,19 @@ func (m *model) formKey(k Key) {
 	case k.Code == Rune && class == -1 && k.R == ' ':
 		f.kind = (f.kind + 1) % len(f.kinds)
 	case k.Code == Enter && class == 1 && fi == len(f.btns)-1:
-		m.dk, m.scr = dNone, f.back
+		m.leave(f)
 	case k.Code == Enter && class == 0 && fi < f.nf()-1, k.Code == Enter && class == -1:
 		f.idx++
 	case k.Code == Enter:
 		f.err = f.submit(f)
+	}
+}
+
+// leave closes the form; first start goes on from here.
+func (m *model) leave(f *form) {
+	m.dk, m.scr = dNone, f.back
+	if f.then != nil {
+		f.then()
 	}
 }
 

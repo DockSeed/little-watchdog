@@ -63,6 +63,7 @@ func TestSaveWithoutDirectorySaysHowToInstall(t *testing.T) {
 	defer srv.Close()
 	p := filepath.Join(t.TempDir(), "nodir", "lw.env")
 	r := start(t, &App{Path: p, Size: sized, APIURL: srv.URL, PollWindow: time.Minute})
+	r.skipWelcome()
 	r.wait("Bot token")
 	r.send("1:a\r")
 	r.wait("waiting until ")

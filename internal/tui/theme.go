@@ -77,6 +77,7 @@ type glyphs struct {
 type theme struct {
 	depth int // 0 monochrome, 1 16 colours, 2 256 colours
 	g     glyphs
+	dots  bool // braille shows: the Linux console draws boxes but has no braille glyphs
 }
 
 var uniGlyphs = glyphs{"╭", "╮", "╰", "╯", "─", "│", "[✓]", "[ ]", "(•)", "( )", "›", "│", "↑↓", "·", "✓", "✗"}
@@ -103,6 +104,7 @@ func newTheme(getenv func(string) string) theme {
 	th.g = asciiGlyphs
 	if utf8Locale(getenv) && !plainTerms[term] {
 		th.g = uniGlyphs
+		th.dots = !strings.HasPrefix(term, "linux")
 	}
 	return th
 }

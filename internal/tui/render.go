@@ -428,7 +428,7 @@ func (m *model) render(out io.Writer) {
 
 	crumb := ""
 	hint, keys := "", []kv{}
-	fr.frameBox(map[screen]string{scMenu: "Menu", scStatus: "Status", scRemove: "Remove check", scSys: "System checks", scBlank: m.flow}[m.scr])
+	fr.frameBox(map[screen]string{scMenu: "Menu", scStatus: "Status", scRemove: "Remove check", scSys: "System checks", scBlank: m.flow, scWelcome: "Welcome"}[m.scr])
 	switch m.scr {
 	case scMenu:
 		hint, keys = m.drawMenuPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
@@ -441,6 +441,10 @@ func (m *model) render(out io.Writer) {
 	case scSys:
 		crumb = "System checks"
 		hint, keys = m.drawSys(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "change"}, {"Space", "on/off"}, {"Esc", "menu"}, {"?", "help"}}
+	case scWelcome:
+		crumb = "Welcome"
+		m.drawWelcome(fr)
+		keys = []kv{{"Enter", "continue"}, {"Esc", "skip"}}
 	default:
 		crumb = m.flow
 	}

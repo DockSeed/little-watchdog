@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- First start only: a welcome screen with a sitting dog, one sentence on what
+  the watchdog does, then the address field and Telegram setup as before.
+
 ## [0.5.1] - 2026-11-05
 
 ### Security

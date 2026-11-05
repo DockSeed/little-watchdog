@@ -69,19 +69,69 @@ func (h *HTTP) SetMode(label, mode string) *HTTP {
 	if mode == "" {
 		return h
 	}
-	follow := func(_ *http.Request, via []*http.Request) error {
-		if len(via) > maxRedirects {
-			return errRedirects
-		}
-		return nil
-	}
-	h.client.CheckRedirect = follow
+	h.client.CheckRedirect = followRedirect(false)
 	if mode == config.ModeLenient && strings.HasPrefix(strings.ToLower(h.url), "http://") {
 		tr := h.client.Transport.(*http.Transport).Clone()
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // only host:port was given: no name a certificate could prove
-		h.insecure = &http.Client{Transport: tr, Timeout: h.timeout, CheckRedirect: follow}
+		h.insecure = &http.Client{Transport: tr, Timeout: h.timeout, CheckRedirect: followRedirect(true)}
 	}
 	return h
+}
+
+// errInternalRedirect: a redirect from a public server to a loopback, private or link-local address.
+var errInternalRedirect = errors.New("redirect to an internal address refused")
+
+// lookupIP resolves a host name for the redirect check (replaced in tests).
+var lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
+
+// internalIP: loopback, private (RFC 1918, ULA), shared (CGNAT, Tailscale), link-local or unspecified.
+func internalIP(ip net.IP) bool {
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1]&0xc0 == 64 {
+		return true
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// internalHost: host is, or resolves to, an internal address (any one of them counts).
+func internalHost(ctx context.Context, host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return internalIP(ip)
+	}
+	ips, err := lookupIP(ctx, host)
+	if err != nil {
+		return false
+	}
+	for _, ip := range ips {
+		if internalIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// followRedirect follows at most maxRedirects. A target that is not internal itself may not
+// send the check to an internal address (a redirect from a public server must not steer GETs
+// into the LAN); a LAN target may redirect within the LAN. The client without certificate
+// checks (insecure) does not follow a redirect to another host: the 3xx is the answer.
+func followRedirect(insecure bool) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) > maxRedirects {
+			return errRedirects
+		}
+		from, to := via[0].URL.Hostname(), req.URL.Hostname()
+		if strings.EqualFold(from, to) {
+			return nil
+		}
+		if insecure {
+			return http.ErrUseLastResponse
+		}
+		if ctx := req.Context(); !internalHost(ctx, from) && internalHost(ctx, to) {
+			return errInternalRedirect
+		}
+		return nil
+	}
 }
 
 func (h *HTTP) ID() string { return "http:" + h.name }
@@ -231,6 +281,9 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 		if errors.Is(err, errRedirects) {
 			return Result{Status: FAIL, Detail: errRedirects.Error(), Value: "too many redirects", Help: Help(KindRedirects)}
 		}
+		if errors.Is(err, errInternalRedirect) {
+			return Result{Status: FAIL, Detail: errInternalRedirect.Error(), Value: "redirect refused"}
+		}
 		if h.mode == config.ModeLenient && notWeb(ctx, err, connected) {
 			return Result{Status: OK, Odd: true, Value: "answers, no website"}
 		}
@@ -262,7 +315,7 @@ func notWeb(ctx context.Context, err error, connected bool) bool {
 	var hn x509.HostnameError
 	var ci x509.CertificateInvalidError
 	switch {
-	case !connected, ctx.Err() != nil, isTimeout(err), errors.Is(err, errRedirects), errors.Is(err, errBadRequest):
+	case !connected, ctx.Err() != nil, isTimeout(err), errors.Is(err, errRedirects), errors.Is(err, errInternalRedirect), errors.Is(err, errBadRequest):
 		return false
 	case errors.As(err, &cv), errors.As(err, &ua), errors.As(err, &hn), errors.As(err, &ci):
 		return false

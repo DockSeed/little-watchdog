@@ -9,8 +9,12 @@ case "$1" in
 remove | deconfigure)
 	if [ -d /run/systemd/system ]; then
 		# remember that it was on, for a later reinstall (see postinst)
+		# a directory, not a file: the directory is group-writable, and mkdir (unlike touch)
+		# never follows a link planted at the name
+		marker=/etc/little-watchdog/.enable-on-install
 		if systemctl is-enabled --quiet little-watchdog.service 2>/dev/null && [ -d /etc/little-watchdog ]; then
-			touch /etc/little-watchdog/.enable-on-install
+			[ ! -L "$marker" ] || rm -f "$marker"
+			mkdir -m 0700 "$marker" 2>/dev/null || true
 		fi
 		systemctl disable --now little-watchdog.service || true
 	fi

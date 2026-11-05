@@ -7,12 +7,14 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -225,6 +227,8 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 		return err
 	}
 	dir := filepath.Dir(path)
+	// kept: STATE_FILE may name a directory that does not exist yet (existing configs); the temp
+	// file plus rename below replaces a link at the final name instead of following it.
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
@@ -882,19 +886,19 @@ func (e *Engine) Configure(failAfter, recoverAfter int) {
 const BeatSuffix = ".alive"
 
 // Beat marks the daemon alive: it only touches the mtime of <state>.alive (no data, no fsync).
+// It never follows a link at that name (the directory may be group-writable): the open fails
+// instead, and the time is set on the opened file, not on the path.
 func Beat(statePath string, now time.Time) error {
-	p := statePath + BeatSuffix
-	if err := os.Chtimes(p, now, now); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0o640)
+	f, err := os.OpenFile(statePath+BeatSuffix, os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o640)
 	if err != nil {
 		return err
 	}
-	f.Close()
-	return os.Chtimes(p, now, now)
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return errors.New("heartbeat file is not a regular file")
+	}
+	tv := syscall.NsecToTimeval(now.UnixNano())
+	return syscall.Futimes(int(f.Fd()), []syscall.Timeval{tv, tv})
 }
 
 // LastBeat returns the daemon's last heartbeat; ok is false if there never was one.

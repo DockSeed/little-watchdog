@@ -111,3 +111,40 @@ func TestFlappingCheckWritesOnlyOnStreakEventsAndSendsNothing(t *testing.T) {
 		t.Fatalf("%d writes for a flapping check", e.Writes())
 	}
 }
+
+// A link planted at <state>.alive is not followed: its target is neither created nor touched.
+func TestBeatDoesNotFollowALink(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "state.json")
+	victim := filepath.Join(dir, "victim")
+	if err := os.Symlink(victim, p+BeatSuffix); err != nil { // dangling
+		t.Fatal(err)
+	}
+	if err := Beat(p, time.Now()); err == nil {
+		t.Fatal("no error for a link")
+	}
+	if _, err := os.Lstat(victim); !os.IsNotExist(err) {
+		t.Fatalf("link target created: %v", err)
+	}
+	os.WriteFile(victim, nil, 0o600)
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	os.Chtimes(victim, old, old)
+	Beat(p, time.Now())
+	if st, _ := os.Stat(victim); !st.ModTime().Equal(old) {
+		t.Fatalf("link target touched: %v", st.ModTime())
+	}
+	// a normal heartbeat still works, new and again
+	q := filepath.Join(dir, "other.json")
+	now := time.Now().Truncate(time.Second)
+	if err := Beat(q, now); err != nil {
+		t.Fatal(err)
+	}
+	if tm, ok := LastBeat(q); !ok || !tm.Equal(now) {
+		t.Fatalf("%v %v", tm, ok)
+	}
+	later := now.Add(time.Minute)
+	Beat(q, later)
+	if tm, _ := LastBeat(q); !tm.Equal(later) {
+		t.Fatalf("%v", tm)
+	}
+}

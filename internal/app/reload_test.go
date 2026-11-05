@@ -430,3 +430,23 @@ func TestMoveNeverRecreatesTheOldStateFile(t *testing.T) {
 		}
 	}
 }
+
+// The move removes the old place only if it is a regular file, never a link planted there.
+func TestRemoveStateLeavesLinksAlone(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "precious")
+	os.WriteFile(target, []byte("x"), 0o600)
+	p := filepath.Join(dir, "state.json")
+	os.Symlink(target, p)
+	os.WriteFile(p+state.BeatSuffix, nil, 0o600)
+	removeState(p)
+	if _, err := os.Lstat(p); err != nil {
+		t.Fatal("link removed:", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(p + state.BeatSuffix); !os.IsNotExist(err) {
+		t.Fatal("regular heartbeat stays")
+	}
+}

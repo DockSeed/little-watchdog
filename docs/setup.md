@@ -14,17 +14,24 @@ wget -q --show-progress $base/releases/download/v$v/$deb $base/releases/download
   $base/releases/download/v$v/SHA256SUMS.sig $base/raw/v$v/allowed_signers
 ```
 
-Check it. Both lines must say OK or Good; the key fingerprint must be
-`SHA256:CMUY2ymSviJh+qEqswCASwZfhcosZc9kMfzcWAjuHEs`, as on the release page.
-This catches a changed download, not a takeover of the whole GitHub account:
+Check it. The first command prints the key fingerprint of `allowed_signers`;
+compare it yourself with `SHA256:CMUY2ymSviJh+qEqswCASwZfhcosZc9kMfzcWAjuHEs`
+from the release page (`ssh-keygen -lf allowed_signers` does not read this
+file format, so the key is cut out first). The other two lines must say OK
+or Good. This catches a changed download, not a takeover of the whole GitHub
+account:
 
 ```sh
+grep -v '^#' allowed_signers | cut -d' ' -f3- | ssh-keygen -lf -
 sha256sum -c --ignore-missing SHA256SUMS
 ssh-keygen -Y verify -f allowed_signers -I release@little-watchdog -n file -s SHA256SUMS.sig < SHA256SUMS
 ```
 
-Install, then log out and in again (close an SSH session completely, a new
-shell is not enough; with SSH connection sharing also run `ssh -O exit HOST`):
+Install. The installer asks whether to add you to the group little-wd, which
+may read the Telegram token and change the checks: type `y`. Any other answer,
+or no terminal, adds nobody and shows the `usermod` command instead. Then log
+out and in again (close an SSH session completely, a new shell is not enough;
+with SSH connection sharing also run `ssh -O exit HOST`):
 
 ```sh
 sudo apt install ./$deb

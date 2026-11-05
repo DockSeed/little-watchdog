@@ -46,6 +46,35 @@
   round; a machine without PSI or a sensor simply has no curve for it.
   The new field `history` is additive: 0.4.0 ignores it, and a broken or
   unknown history is dropped without stopping the daemon.
+- If the state cannot be moved to the new place at a reload (STATE_IN_RAM=yes
+  while the unit has no `RuntimeDirectory=`), the daemon keeps writing to the
+  old place and logs a warning, instead of writing nowhere. At start it falls
+  back to the disk path the same way.
+- A restart with the clock behind the saved history (a board without a
+  real-time clock before NTP) no longer wipes the 24 hours: nothing is
+  recorded until the clock is past the saved end; after an hour behind it
+  counts as a real step back and the history starts again.
+- The mean of a host value keeps its weight over a restart inside the same
+  10 minutes (new optional field `host_n`).
+- A save from the sender no longer brings back the old state file after a
+  move between disk and RAM.
+
+### Security
+
+- The package and install.sh no longer add the user who ran sudo to the
+  group little-wd on their own. They ask on a new install; only `y` typed at a
+  terminal adds the user, otherwise they show the `usermod` command. An
+  upgrade of the .deb asks nothing.
+- The package keeps its "turn on again after reinstall" marker as a
+  directory, so root no longer creates a file through a link planted in
+  `/etc/little-watchdog`.
+- The heartbeat file and the move of the state file do not follow links.
+- A web check no longer follows a redirect from a public server to a
+  loopback, private or link-local address; it fails with a short message.
+  The client without certificate check does not follow a redirect to
+  another host.
+- `docs/setup.md` shows the fingerprint of `allowed_signers` to compare
+  before verifying a download.
 
 ## [0.4.0] - 2026-11-05
 

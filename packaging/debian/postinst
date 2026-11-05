@@ -18,17 +18,26 @@ if command -v systemd-tmpfiles >/dev/null 2>&1; then
 		echo "little-watchdog: warning: could not create /etc/little-watchdog" >&2
 fi
 
-# prerm leaves this file when it disables the service because of "remove", so that
+# prerm leaves this directory when it disables the service because of "remove", so that
 # installing the package again (dpkg then passes the old version in $2, as for an
 # upgrade) turns the service on again. A service the admin disabled by hand stays off.
+# Older packages left a plain file; a link at that name is never followed, only removed.
 marker=/etc/little-watchdog/.enable-on-install
+was_on=
+if [ ! -L "$marker" ] && { [ -d "$marker" ] || [ -f "$marker" ]; }; then
+	was_on=1
+fi
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload || true
-	if [ -z "$2" ] || [ -e "$marker" ]; then
+	if [ -z "$2" ] || [ -n "$was_on" ]; then
 		systemctl enable --now little-watchdog.service || true # new install, or back after remove
-		rm -f "$marker"
 	else
 		systemctl try-restart little-watchdog.service || true # upgrade
+	fi
+	if [ -L "$marker" ] || [ -f "$marker" ]; then
+		rm -f "$marker"
+	elif [ -d "$marker" ]; then
+		rmdir "$marker" 2>/dev/null || true
 	fi
 fi
 
@@ -39,19 +48,34 @@ else
 	hd= cm= rs=
 fi
 
+# ask: yes only for y or yes typed on a terminal. No terminal (unattended upgrades, a pipe),
+# DEBIAN_FRONTEND=noninteractive, Enter or anything else is no.
+ask() {
+	[ -t 0 ] && [ -t 1 ] && [ "${DEBIAN_FRONTEND:-}" != noninteractive ] || return 1
+	printf '%s [y/N] ' "$1"
+	read -r answer || return 1
+	case $answer in y | Y | yes | Yes | YES) return 0 ;; esac
+	return 1
+}
+
+# The group can read the Telegram token and change what is watched, so a user joins it only
+# when someone at the terminal says so. Otherwise the command is shown.
 user=${SUDO_USER:-}
-if [ -n "$user" ] && [ "$user" != root ] && getent passwd "$user" >/dev/null 2>&1; then
-	if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx little-wd; then
-		:
-	elif usermod -aG little-wd "$user" 2>/dev/null; then
-		printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
-		printf '    Added %s to the group little-wd.\n' "$user"
-		printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
-	fi
-else
+[ "$user" != root ] || user=
+if [ -n "$user" ] && ! getent passwd "$user" >/dev/null 2>&1; then
+	user=
+fi
+if [ -n "$user" ] && id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx little-wd; then
+	: # already in the group
+elif [ -n "$user" ] && [ -z "${2:-}" ] && ask "little-watchdog: add $user to the group little-wd (reads the Telegram token, edits the checks)?" &&
+	usermod -aG little-wd "$user" 2>/dev/null; then
+	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+	printf '    Added %s to the group little-wd.\n' "$user"
+	printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
+elif [ -z "${2:-}" ]; then # new install: show the command once
 	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
 	printf '    To set it up, add your user to the group:\n'
-	printf '        %ssudo usermod -aG little-wd YOUR_USER%s\n' "$cm" "$rs"
+	printf '        %ssudo usermod -aG little-wd %s%s\n' "$cm" "${user:-YOUR_USER}" "$rs"
 	printf '    Then log out and in again and run:  %slittle-wd%s\n\n' "$cm" "$rs"
 fi
 exit 0

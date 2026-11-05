@@ -86,17 +86,33 @@ else
 	hd= cm= rs=
 fi
 
+# ask: yes only for y or yes typed on a terminal. No terminal (unattended upgrades, a pipe),
+# DEBIAN_FRONTEND=noninteractive, Enter or anything else is no.
+ask() {
+	[ -t 0 ] && [ -t 1 ] && [ "${DEBIAN_FRONTEND:-}" != noninteractive ] || return 1
+	printf '%s [y/N] ' "$1"
+	read -r answer || return 1
+	case $answer in y | Y | yes | Yes | YES) return 0 ;; esac
+	return 1
+}
+
+# The group can read the Telegram token and change what is watched, so a user joins it only
+# when someone at the terminal says so. Otherwise the command is shown.
 user=${SUDO_USER:-}
-if [ -n "$user" ] && [ "$user" != root ] && getent passwd "$user" >/dev/null 2>&1; then
-	if ! id -nG "$user" | tr ' ' '\n' | grep -qx little-wd; then
-		run usermod -aG little-wd "$user"
-		printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
-		printf '    Added %s to the group little-wd.\n' "$user"
-		printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
-	fi
+[ "$user" != root ] || user=
+if [ -n "$user" ] && ! getent passwd "$user" >/dev/null 2>&1; then
+	user=
+fi
+if [ -n "$user" ] && id -nG "$user" | tr ' ' '\n' | grep -qx little-wd; then
+	: # already in the group
+elif [ -n "$user" ] && [ "$dry" = 0 ] && ask "Add $user to the group little-wd (reads the Telegram token, edits the checks)?"; then
+	run usermod -aG little-wd "$user"
+	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
+	printf '    Added %s to the group little-wd.\n' "$user"
+	printf '    Log out and in again, then run:  %slittle-wd%s\n\n' "$cm" "$rs"
 else
 	printf '\n%s==> little-watchdog%s\n' "$hd" "$rs"
 	printf '    To set it up, add your user to the group:\n'
-	printf '        %ssudo usermod -aG little-wd YOUR_USER%s\n' "$cm" "$rs"
+	printf '        %ssudo usermod -aG little-wd %s%s\n' "$cm" "${user:-YOUR_USER}" "$rs"
 	printf '    Then log out and in again and run:  %slittle-wd%s\n\n' "$cm" "$rs"
 fi

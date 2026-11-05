@@ -40,8 +40,9 @@ wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/dow
 sudo apt install ./little-watchdog_0.4.0_*.deb
 ```
 
-Then log out and in again (close an SSH session completely, a new shell is not
-enough) and run `little-wd`. Nothing to build: the package holds the program.
+Answer `y` when it asks to add you to the group little-wd. Then log out and in
+again (close an SSH session completely, a new shell is not enough) and run
+`little-wd`. Nothing to build: the package holds the program.
 Next: the Telegram bot, see [docs/setup.md](docs/setup.md). It also shows how
 to check the download and set up the dead-man's-switch.
 

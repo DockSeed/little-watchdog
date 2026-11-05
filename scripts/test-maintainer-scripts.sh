@@ -57,6 +57,18 @@ has "remove" "disable --now"; ! enabled || fail "remove: still enabled"
 step "reinstall after remove" postinst configure 0.1.0
 has "reinstall after remove" "enable --now"; enabled || fail "reinstall: service stays off"
 [ ! -e "$work/etc/.enable-on-install" ] || fail "marker not cleaned up"
+# a link planted at the marker name is not followed by prerm or postinst, and is removed
+ln -s "$work/victim" "$work/etc/.enable-on-install"
+step "remove with a planted link" prerm remove
+[ ! -e "$work/victim" ] || fail "prerm followed a link at the marker"
+[ -d "$work/etc/.enable-on-install" ] || fail "prerm left no marker directory"
+rmdir "$work/etc/.enable-on-install"; ln -s "$work/victim" "$work/etc/.enable-on-install"
+step "reinstall with a planted link" postinst configure 0.1.0
+[ ! -e "$work/victim" ] && [ ! -L "$work/etc/.enable-on-install" ] || fail "postinst followed or kept a link at the marker"
+# the marker of older packages was a plain file: it still counts
+rm -f "$work/enabled"; touch "$work/etc/.enable-on-install"
+step "reinstall with an old file marker" postinst configure 0.1.0
+enabled && [ ! -e "$work/etc/.enable-on-install" ] || fail "old file marker not honoured or not removed"
 rm -f "$work/enabled" # the admin disables it by hand
 step "upgrade of a disabled service" postinst configure 0.1.1
 hasnt "disabled service" "enable"; ! enabled || fail "a service disabled by hand was turned on"
@@ -68,6 +80,49 @@ step "remove keeps data" postrm remove
 [ -e "$work/etc/config" ] && [ -e "$work/var/state" ] || fail "remove deleted data"
 step "purge" postrm purge
 [ ! -e "$work/etc" ] && [ ! -e "$work/var" ] || fail "purge left data"
+# the group can read the Telegram token: the user who ran sudo joins only on a typed yes at a
+# terminal, never without one; then the command is shown instead
+me=$(id -un)
+printf '#!/bin/sh\necho users\n' >"$work/bin/id" && chmod +x "$work/bin/id" # not in little-wd yet
+: >"$work/log"
+out=$(SUDO_USER=$me PATH="$work/bin:$PATH" sh "$work/postinst" configure </dev/null 2>&1) || fail "group, no terminal: exit status"
+hasnt "group, no terminal" usermod
+printf '%s' "$out" | grep -q "usermod -aG little-wd $me" || fail "group, no terminal: command not shown"
+# answer ARG CMD...: runs CMD on a pseudo terminal, types ARG once it asks [y/N]
+answer() {
+	python3 - "$@" <<'PY'
+import os, pty, sys
+ans, cmd = sys.argv[1], sys.argv[2:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(cmd[0], cmd)
+buf, sent = b"", False
+while True:
+    try:
+        chunk = os.read(fd, 1024)
+    except OSError:
+        break
+    if not chunk:
+        break
+    buf += chunk
+    if not sent and b"[y/N]" in buf:
+        os.write(fd, ans.encode() + b"\n")
+        sent = True
+sys.exit(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]))
+PY
+}
+for a in n "" y; do
+	: >"$work/log"
+	(unset DEBIAN_FRONTEND; SUDO_USER=$me PATH="$work/bin:$PATH" answer "$a" sh "$work/postinst" configure >/dev/null) || fail "group, answer '$a': exit status"
+	if [ "$a" = y ]; then has "group, yes" "usermod -aG little-wd $me"; else hasnt "group, answer '$a'" usermod; fi
+done
+: >"$work/log"
+(unset DEBIAN_FRONTEND; SUDO_USER=$me PATH="$work/bin:$PATH" answer y sh "$work/postinst" configure 0.4.0 >/dev/null) || fail "group, upgrade: exit status"
+hasnt "group, upgrade asks nothing" usermod
+: >"$work/log" # a terminal, but apt told not to ask
+DEBIAN_FRONTEND=noninteractive SUDO_USER=$me PATH="$work/bin:$PATH" answer y sh "$work/postinst" configure >/dev/null || fail "group, noninteractive: exit status"
+hasnt "group, noninteractive" usermod
+rm "$work/bin/id"
 rmdir "$work/run" # no systemd running (container, chroot): nothing may call systemctl, nothing may fail
 mkdir -p "$work/etc"
 step "no systemd" postinst configure

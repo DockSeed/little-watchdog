@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-05
+
 ### Added
 
 - Fine history: the detail view of a check shows its last 30 minutes (every

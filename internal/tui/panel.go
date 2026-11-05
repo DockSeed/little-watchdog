@@ -289,6 +289,7 @@ func (m *model) checkBlock(now time.Time, w, n int, curves bool) (rs []prow) {
 			{backText(e, m.snap.cfg.RecoverAfter), sWarn}, {" good tries after the FAIL", sBg}})
 	}
 	if curves {
+		rs = append(rs, m.fineRows(e, now, lw, w)...)
 		rs = append(rs, m.checkHistory(e, now, lw, w)...)
 	}
 	if e.NoValue {

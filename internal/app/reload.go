@@ -137,10 +137,10 @@ func (a *App) apply(nc *config.Config) {
 	}
 }
 
-// removeState deletes an old state file and its heartbeat, but only regular files: a symlink
+// removeState deletes an old state file, its heartbeat and fine history, but only regular files: a symlink
 // planted there is left alone.
 func removeState(p string) {
-	for _, f := range []string{p, p + state.BeatSuffix} {
+	for _, f := range []string{p, p + state.BeatSuffix, p + state.FineSuffix} {
 		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
 			os.Remove(f)
 		}

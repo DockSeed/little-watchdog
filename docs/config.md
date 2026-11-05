@@ -72,6 +72,11 @@ Disk writes (SD cards wear out): the daemon writes the state file about every
 or all-clear message adds two writes. `little-wd` shows the measured rate.
 The 24 hour history for the curves lives in the same file (field `history`, at
 most about 16 KB) and is written with those writes, never on its own.
+The last 30 minutes of every measurement (detail view: curve and what came before a
+FAIL) are in a second file, `state.json.fine`, next to the state file. It is written in
+the same write, replaced the same way, and adds about 170 bytes per check at a 60 s
+round (at most 360 measurements, about 1.8 KB, per check). There is no extra write round,
+but each round writes two files; the "writes/h" in the menu counts rounds.
 
 With `STATE_IN_RAM=yes` (Settings, "State in RAM") the daemon writes nothing
 to disk: the state file lives in `/run/little-watchdog`, which the unit

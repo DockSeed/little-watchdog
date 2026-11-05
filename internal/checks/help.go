@@ -55,7 +55,8 @@ var helps = map[Kind]string{
 	KindRedirects:   "Maybe the page sends visitors in a circle. A browser shows where it leads.",
 }
 
-// Kinds lists every failure kind that has a hint, in a fixed order.
+// Kinds lists every failure kind that has a hint, in a fixed order. The fine history stores
+// a kind as its index here, so new kinds go at the end only.
 func Kinds() []Kind {
 	return []Kind{KindRefused, KindBlocked, KindUnreachable, KindTimeout, KindDNS, KindTLS,
 		KindHTTP4xx, KindHTTP5xx, KindHTTPOther, KindNoText, KindCPU, KindMem,
@@ -75,4 +76,17 @@ func httpKind(code int) Kind {
 		return KindHTTP5xx
 	}
 	return KindHTTPOther
+}
+
+// KindOf is the kind whose hint is help ("" when none: a result carries the hint, not the kind).
+func KindOf(help string) Kind {
+	if help == "" {
+		return ""
+	}
+	for _, k := range Kinds() {
+		if helps[k] == help {
+			return k
+		}
+	}
+	return ""
 }

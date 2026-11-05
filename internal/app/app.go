@@ -149,6 +149,7 @@ func (a *App) LoadState() {
 	if w := a.Eng.Load(cfg.StateFile, valid); w != "" {
 		a.Log.Printf("warning: %s", w)
 	}
+	a.Eng.LoadFine(cfg.StateFile+state.FineSuffix, valid, a.Now())
 	if cfg.DeadmanURL == "" {
 		a.Eng.ClearDeadman()
 	}

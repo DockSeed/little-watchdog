@@ -75,7 +75,7 @@ const (
 type Footprint struct {
 	Started time.Time `json:"started"`
 	At      time.Time `json:"at"`
-	Writes  int       `json:"writes"`           // state file writes since Started, this one included
+	Writes  int       `json:"writes"`           // write rounds since Started, this one included; each writes the state and its fine history
 	RSSKB   int64     `json:"rss_kb,omitempty"` // resident memory
 	CPUSec  float64   `json:"cpu_s,omitempty"`  // CPU time used since Started
 }
@@ -111,6 +111,7 @@ type Engine struct {
 	Proc         func() (int64, float64) // RSS in KB and CPU seconds of this process
 	PSI          func() (float64, bool)  // worst pressure now (percent), false where the kernel has none
 	hist         *hist
+	fine         fine // the last 30 minutes per check; written next to the state file
 	saveMu       sync.Mutex
 	FailAfter    int
 	RecoverAfter int
@@ -121,7 +122,7 @@ type Engine struct {
 }
 
 func NewEngine(failAfter, recoverAfter int) *Engine {
-	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter, Started: time.Now(), Proc: ReadProc, PSI: ReadPSI, hist: newHist()}
+	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter, Started: time.Now(), Proc: ReadProc, PSI: ReadPSI, hist: newHist(), fine: fine{}}
 }
 
 // Load reads the state file and keeps only ids in valid. A missing file is
@@ -173,7 +174,7 @@ const refreshEvery = 10 * time.Minute
 // (a flapping check); changes of the reported state and messages are written at once.
 const counterEvery = 5 * time.Minute
 
-// Writes counts state file writes.
+// Writes counts write rounds; each writes the state file and its fine history.
 func (e *Engine) Writes() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -210,6 +211,7 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	}
 	f.Foot = e.footprint(now)
 	f.Hist = e.hist.encode()
+	fb := e.fine.encode(now)
 	b, err := json.Marshal(f)
 	if e.cdirty {
 		e.cAt = now
@@ -232,30 +234,11 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
-	if err != nil {
+	if err := atomicWrite(path, b, ".state-*.tmp"); err != nil {
 		return err
 	}
-	name := tmp.Name()
-	defer os.Remove(name) // no-op after successful rename
-	if err := tmp.Chmod(0o640); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		return err
-	}
+	// the fine history rides on the same write; a failure costs it only, never the state
+	atomicWrite(path+FineSuffix, fb, ".fine-*.tmp")
 	e.mu.Lock()
 	e.savedAt, e.writes = now, e.writes+1
 	e.mu.Unlock()
@@ -873,6 +856,11 @@ func (e *Engine) Retain(valid map[string]bool) {
 			delete(e.hist.checks, id)
 		}
 	}
+	for id := range e.fine {
+		if !valid[id] {
+			delete(e.fine, id)
+		}
+	}
 }
 
 // Configure changes the hysteresis thresholds.
@@ -919,4 +907,31 @@ func Stale(statePath string, after time.Duration, now time.Time) (age time.Durat
 	}
 	age = max(now.Sub(t), 0)
 	return age, age > after
+}
+
+// atomicWrite writes b to path as temp file, fsync, rename, mode 0640. The rename replaces a
+// link at the final name instead of following it.
+func atomicWrite(path string, b []byte, pattern string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // no-op after successful rename
+	if err := tmp.Chmod(0o640); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }

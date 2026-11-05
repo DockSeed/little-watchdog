@@ -172,7 +172,8 @@ type model struct {
 	cfgText    string
 	cfgExplore bool
 	stSig      stateSig
-	last       string // the frame on the terminal
+	fineSig    stateSig // stat of the fine history file
+	last       string   // the frame on the terminal
 	form       *form
 	det        state.Entry
 	items      []checkRow // remove list

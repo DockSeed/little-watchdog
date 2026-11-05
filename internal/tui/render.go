@@ -19,27 +19,29 @@ import (
 
 // snapshot is the config and state as last read; it feeds the header, menu and status.
 type snapshot struct {
-	cfg     *config.Config
-	cfgErr  string
-	es      []state.Entry
-	esErr   string
-	ok, bad int
-	failed  []string
-	shaky   []string // failing, but not reported yet (below FAIL_AFTER)
-	odd     []string // OK, but not as the address promised (shown yellow)
-	lastMsg time.Time
-	rows    []srow
-	ents    []state.Entry
-	stale   bool // the daemon has not beaten for two intervals
-	age     time.Duration
-	tg      state.Telegram // how the daemon's sends went
-	dm      state.Deadman  // how the dead-man pings went
-	linked  time.Time      // the setup's test message
-	pairing bool           // setup polls the bot right now
-	pending int            // messages waiting for Telegram
-	up      state.Updates  // getUpdates conflict, if any
-	foot    *state.Footprint
-	hist    *state.Hist // 24 h of checks and host values, nil if the file has none
+	cfg      *config.Config
+	cfgErr   string
+	es       []state.Entry
+	esErr    string
+	ok, bad  int
+	failed   []string
+	shaky    []string // failing, but not reported yet (below FAIL_AFTER)
+	odd      []string // OK, but not as the address promised (shown yellow)
+	lastMsg  time.Time
+	rows     []srow
+	ents     []state.Entry
+	stale    bool // the daemon has not beaten for two intervals
+	age      time.Duration
+	tg       state.Telegram // how the daemon's sends went
+	dm       state.Deadman  // how the dead-man pings went
+	linked   time.Time      // the setup's test message
+	pairing  bool           // setup polls the bot right now
+	pending  int            // messages waiting for Telegram
+	up       state.Updates  // getUpdates conflict, if any
+	foot     *state.Footprint
+	hist     *state.Hist // 24 h of checks and host values, nil if the file has none
+	fine     *state.Fine // the last 30 minutes of every measurement, nil if the daemon wrote none
+	fineHint bool        // no fine history because the runtime directory is missing (old unit)
 }
 
 // errStale is how long an old send error stays red when nothing is waiting to be sent.
@@ -132,6 +134,7 @@ func (m *model) refresh() {
 			s.lastMsg = e.LastMsgAt
 		}
 	}
+	m.readFine(&s)
 	s.rows, s.ents = buildRows(s.es, hostsOf(s.cfg))
 	s.stale, s.age, s.pairing, s.linked = false, 0, false, time.Time{}
 	if s.cfg != nil {
@@ -998,8 +1001,22 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 		rows = append(rows, labWrap(lab, "State", m.sinceText(e, now), vw)...)
 	}
 	rows = append(rows, labWrap(lab, "Last", e.Value, vw)...)
-	// the 24 h curves, if the box has the rows for them (4 more below, 2 for the frame)
-	if cs := m.checkHistory(e, now, 10, w-4); len(rows)+len(cs)+6 <= fr.ih {
+	// the last 30 minutes with what came before a failure, then the 24 h curves, if the box has
+	// the rows for them (4 more below, 2 for the frame, and the hint of a failing check)
+	help := 0
+	if e.Help != "" {
+		help = 1 + min(len(wrapAll(e.Help, w-4, 3)), 3)
+	}
+	if fs := m.fineRows(e, now, 10, w-4); len(fs) > 0 && len(rows)+len(fs)+6+help <= fr.ih {
+		for _, r := range fs {
+			d := drow{}
+			for _, sg := range r {
+				d.segs = append(d.segs, seg{sg.s, map[sty]sty{sRowDim: sDdim, sBg: sDlg, sFail: sDfail}[sg.st]})
+			}
+			rows = append(rows, d)
+		}
+	}
+	if cs := m.checkHistory(e, now, 10, w-4); len(rows)+len(cs)+6+help <= fr.ih {
 		for _, r := range cs {
 			d := drow{}
 			for _, sg := range r {

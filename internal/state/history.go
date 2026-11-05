@@ -170,6 +170,7 @@ func (e *Engine) record(c checks.Check, r checks.Result, now time.Time) {
 	switch typ := c.Type(); {
 	case isService(typ):
 		e.hist.addCheck(c.ID(), r.Status, r.Took, now)
+		e.fine.add(c.ID(), r.Status, r.Took, checks.KindOf(r.Help), now)
 	case r.HasLevel:
 		name := map[string]string{"cpu": HostCPU, "mem": HostRAM, "disk": HostDisk, "temp": HostTemp}[typ]
 		if name != "" {

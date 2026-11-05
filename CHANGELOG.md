@@ -4,6 +4,14 @@
 
 ### Added
 
+- Fine history: the detail view of a check shows its last 30 minutes (every
+  measurement, failures marked) and one line on what came before the last
+  failed try, for example "response time rose from 22:51". It is kept in a
+  second file, `state.json.fine`, next to the state file and written in the
+  write rounds that are due anyway: no extra round, but each round now writes
+  two files. No new port, nothing more in Telegram; with STATE_IN_RAM=yes it
+  lives in `/run` as well. At rest the file is up to 10 minutes old; the curve
+  then ends there and says "as of HH:MM".
 - First start only: a welcome screen with a sitting dog, one sentence on what
   the watchdog does, then the address field and Telegram setup as before.
 
@@ -12,7 +20,8 @@
 - Results say first what was checked, then the time: `web 200, 41 ms`,
   `port open, 1 ms`, `ping answers, 3 ms`, `port open, no website`; a host
   check whose port is closed reads `port closed, host up, 2 ms`. Old results
-  in the state file keep their wording until the next check.
+  in the state file keep their wording until the next check. Telegram's
+  `/status` shows these results too; alarm messages are unchanged.
 
 ## [0.5.1] - 2026-11-05
 

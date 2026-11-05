@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-05
+
 ### Security
 
 - A web check whose target is a public address checks every connection on

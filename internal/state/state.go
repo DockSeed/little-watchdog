@@ -93,6 +93,7 @@ type file struct {
 	Deadman  *Deadman          `json:"deadman,omitempty"`
 	Updates  *Updates          `json:"updates,omitempty"`
 	Foot     *Footprint        `json:"footprint,omitempty"`
+	Hist     *History          `json:"history,omitempty"` // 24 h in 10 minute buckets (additive: 0.4.0 ignores it)
 }
 
 type Engine struct {
@@ -106,6 +107,8 @@ type Engine struct {
 	Started      time.Time // daemon start, for the footprint; read it with StartedAt
 	startFixed   bool
 	Proc         func() (int64, float64) // RSS in KB and CPU seconds of this process
+	PSI          func() (float64, bool)  // worst pressure now (percent), false where the kernel has none
+	hist         *hist
 	saveMu       sync.Mutex
 	FailAfter    int
 	RecoverAfter int
@@ -116,7 +119,7 @@ type Engine struct {
 }
 
 func NewEngine(failAfter, recoverAfter int) *Engine {
-	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter, Started: time.Now(), Proc: ReadProc}
+	return &Engine{entries: map[string]*Entry{}, FailAfter: failAfter, RecoverAfter: recoverAfter, Started: time.Now(), Proc: ReadProc, PSI: ReadPSI, hist: newHist()}
 }
 
 // Load reads the state file and keeps only ids in valid. A missing file is
@@ -125,6 +128,7 @@ func (e *Engine) Load(path string, valid map[string]bool) (warn string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.entries = map[string]*Entry{}
+	e.hist = newHist()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -147,6 +151,7 @@ func (e *Engine) Load(path string, valid map[string]bool) (warn string) {
 			e.entries[id] = en
 		}
 	}
+	e.hist = decode(f.Hist, valid) // a history it cannot read is left out, never an error
 	if f.Telegram != nil {
 		e.tg = *f.Telegram
 	}
@@ -202,6 +207,7 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 		f.Updates = &up
 	}
 	f.Foot = e.footprint(now)
+	f.Hist = e.hist.encode()
 	b, err := json.Marshal(f)
 	if e.cdirty {
 		e.cAt = now
@@ -300,6 +306,7 @@ func (e *Engine) footprint(now time.Time) *Footprint {
 func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.record(c, r, now)
 	en := e.entries[c.ID()]
 	if en == nil {
 		en = &Entry{Reported: checks.UNKNOWN, Since: now}
@@ -604,6 +611,7 @@ type Snap struct {
 	Deadman  *Deadman
 	Updates  *Updates
 	Foot     *Footprint
+	Hist     *Hist // nil when the file has none
 }
 
 // ReadAll is ReadFile plus the meta.
@@ -632,6 +640,7 @@ func ReadAll(path string) (st Snap, err error) {
 		st.Updates = &u
 	}
 	st.Foot = f.Foot
+	st.Hist = f.Hist.Hist()
 	out := []Entry(nil)
 	for id, en := range f.Checks {
 		if en != nil {
@@ -843,6 +852,11 @@ func (e *Engine) Retain(valid map[string]bool) {
 		if !valid[id] {
 			delete(e.entries, id)
 			e.dirty = true
+		}
+	}
+	for id := range e.hist.checksOrNil() {
+		if !valid[id] {
+			delete(e.hist.checks, id)
 		}
 	}
 }

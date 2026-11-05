@@ -39,6 +39,7 @@ type snapshot struct {
 	pending int            // messages waiting for Telegram
 	up      state.Updates  // getUpdates conflict, if any
 	foot    *state.Footprint
+	hist    *state.Hist // 24 h of checks and host values, nil if the file has none
 }
 
 // errStale is how long an old send error stays red when nothing is waiting to be sent.
@@ -93,7 +94,7 @@ func (m *model) refresh() {
 		m.stSig = sig
 		var err error
 		var st state.Snap
-		s.es, s.esErr, s.tg, s.dm, s.up, s.foot = nil, "", state.Telegram{}, state.Deadman{}, state.Updates{}, nil
+		s.es, s.esErr, s.tg, s.dm, s.up, s.foot, s.hist = nil, "", state.Telegram{}, state.Deadman{}, state.Updates{}, nil, nil
 		if st, err = state.ReadAll(s.cfg.StateFile); err != nil {
 			s.esErr = err.Error()
 		} else {
@@ -107,7 +108,7 @@ func (m *model) refresh() {
 			if st.Updates != nil {
 				s.up = *st.Updates
 			}
-			s.foot = st.Foot
+			s.foot, s.hist = st.Foot, st.Hist
 		}
 	}
 	s.ok, s.bad, s.failed, s.shaky, s.odd, s.lastMsg, s.pending = 0, 0, nil, nil, nil, time.Time{}, 0
@@ -976,6 +977,16 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 		rows = append(rows, labWrap(lab, "State", m.sinceText(e, now), vw)...)
 	}
 	rows = append(rows, labWrap(lab, "Last", e.Value, vw)...)
+	// the 24 h curves, if the box has the rows for them (4 more below, 2 for the frame)
+	if cs := m.checkHistory(e, now, 10, w-4); len(rows)+len(cs)+6 <= fr.ih {
+		for _, r := range cs {
+			d := drow{}
+			for _, sg := range r {
+				d.segs = append(d.segs, seg{sg.s, map[sty]sty{sRowDim: sDdim, sBg: sDlg, sFail: sDfail}[sg.st]})
+			}
+			rows = append(rows, d)
+		}
+	}
 	if e.Help != "" { // only set while the check fails
 		rows = append(rows, line("What to do:", sDdim))
 		for _, l := range wrapAll(e.Help, w-4, 3) {

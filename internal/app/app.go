@@ -298,6 +298,7 @@ func (a *App) Check(ctx context.Context) {
 	for i, c := range cs {
 		a.Eng.Observe(c, rs[i], now)
 	}
+	a.Eng.SamplePSI(now)
 	a.saveState(false)
 	a.endCycle()
 }

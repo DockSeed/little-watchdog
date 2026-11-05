@@ -92,7 +92,7 @@ func TestStatusPanel130(t *testing.T) {
 	// block 2: this machine
 	host, _ := os.Hostname()
 	has(t, f, host+" right now", "load 1/5/15 min 0.52 0.40 0.31 on "+plural(runtime.NumCPU(), "CPU", "CPUs"),
-		"Stalled (PSI)   10s    60s    5m", "  CPU           1.25%  0.50%  0.10%", "  RAM           0.00%  0.00%  0.00%",
+		"waited          10s    60s    5m", "  CPU           1.25%  0.50%  0.10%", "  RAM           0.00%  0.00%  0.00%",
 		"  disk          4.00%  2.00%  1.00%", "up since boot   3 d 4 h")
 	if !strings.Contains(rs[24], "up since boot") { // anchored at the bottom of the panel
 		t.Fatalf("machine block not at the bottom:\n%s", f)
@@ -139,8 +139,8 @@ func TestStatusPanelNoPSIAndErrors(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 160, 40 }, Proc: proc})
 	r.send("\r")
 	r.wait("Last result")
-	r.wait("Stalled (PSI)")
-	has(t, r.frame(), "Stalled (PSI)   /proc limited", "load 1/5/15 min not found", "up since boot   unexpected format")
+	r.wait("waited")
+	has(t, r.frame(), "waited          /proc limited", "load 1/5/15 min not found", "up since boot   unexpected format")
 	lacks(t, r.frame(), "10s    60s")
 	r.send("\x03")
 	r.finish()
@@ -148,7 +148,7 @@ func TestStatusPanelNoPSIAndErrors(t *testing.T) {
 	r = start(t, &App{Path: fixture(t), Size: func() (int, int) { return 160, 40 }, Proc: proc})
 	r.send("\r")
 	r.wait("Last result")
-	r.wait("Stalled (PSI)   no PSI (kernel or psi=0)")
+	r.wait("waited          no PSI (kernel or psi=0)")
 	r.send("\x03")
 	r.finish()
 }
@@ -167,12 +167,12 @@ func TestStatusPanelLow(t *testing.T) {
 		rs := checkSize(t, f, 130, c.h)
 		has(t, f, "Telegram  last message", c.result)
 		if c.machine {
-			has(t, f, "right now", "load 1/5/15 min", "Stalled (PSI)", "  disk ", "up since boot")
+			has(t, f, "right now", "load 1/5/15 min", "waited", "  disk ", "up since boot")
 			if !strings.Contains(rs[c.h-6], "up since boot") {
 				t.Fatalf("%d rows: last line of the machine block missing:\n%s", c.h, f)
 			}
 		} else {
-			lacks(t, f, "right now", "load 1/5/15", "Stalled", "up since boot")
+			lacks(t, f, "right now", "load 1/5/15", "waited", "up since boot")
 		}
 		r.send("\x03")
 		r.finish()
@@ -260,7 +260,7 @@ func TestStatusNoPanelBelow120(t *testing.T) {
 		r.wait("Services")
 		f := r.frame()
 		rs := checkSize(t, f, sz[0], sz[1])
-		lacks(t, f, "load 1/5/15", "Stalled (PSI)", "Type      cpu")
+		lacks(t, f, "load 1/5/15", "waited", "Type      cpu")
 		if n := strings.Count(rs[5], "│"); n != 2 {
 			t.Fatalf("%v: %d bars in %q", sz, n, rs[5])
 		}

@@ -36,6 +36,12 @@ type Result struct {
 	// Hold: OK, but inside the hysteresis band. A check currently reported
 	// as FAIL stays FAIL until a sample is outside the band.
 	Hold bool
+	// Took is how long Run needed; RunAll sets it. The history keeps it for answered service checks.
+	Took time.Duration
+	// Level is the measured load for the history: percent used (disk, memory), percent busy (cpu)
+	// or degrees C (temperature). Only valid when HasLevel is set.
+	Level    float64
+	HasLevel bool
 }
 
 type Check interface {
@@ -67,7 +73,10 @@ func RunAll(ctx context.Context, cs []Check, timeout time.Duration) []Result {
 	for w := min(MaxParallel, len(cs)); w > 0; w-- {
 		go func() {
 			for i := range todo {
-				ch <- indexed{i, cs[i].Run(ctx)}
+				t0 := time.Now()
+				r := cs[i].Run(ctx)
+				r.Took = time.Since(t0)
+				ch <- indexed{i, r}
 			}
 		}()
 	}

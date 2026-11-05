@@ -80,7 +80,10 @@ func (m *model) drawMenuPage(fr *frame, now time.Time) string {
 func (m *model) drawLook(fr *frame, now time.Time) {
 	w := fr.iw - 2 // one cell of air on each side
 	top := m.lookBlock(now, w)
-	sys := m.machineBlock(now, w)
+	sys := m.machineBlock(now, w, true)
+	if len(top)+1+len(sys) > fr.ih { // no room for the curves: the machine block without them
+		sys = m.machineBlock(now, w, false)
+	}
 	if len(top)+1+len(sys) > fr.ih { // the checks come first; the machine block goes as a whole
 		sys = nil
 	}
@@ -164,13 +167,23 @@ type prow []seg
 // drawPanel draws the check under the cursor at the top and this machine at the bottom.
 func (m *model) drawPanel(fr *frame, now time.Time) {
 	w := fr.iw - 1 // one cell of air after the separator
-	sys := m.machineBlock(now, w)
-	top := m.checkBlock(now, w, 3)
-	if len(top)+1+len(sys) > fr.ih { // low terminal: target and result on one line first
-		top = m.checkBlock(now, w, 1)
+	// the curves are the first thing to give way on a low terminal
+	sys, top := m.machineBlock(now, w, true), m.checkBlock(now, w, 3, true)
+	fits := func() bool { return len(top)+1+len(sys) <= fr.ih }
+	if !fits() {
+		sys = m.machineBlock(now, w, false)
 	}
-	if len(top)+1+len(sys) > fr.ih { // still too low: the machine block goes as a whole, never half
-		top, sys = m.checkBlock(now, w, 3), nil
+	if !fits() {
+		top = m.checkBlock(now, w, 3, false)
+	}
+	if !fits() { // low terminal: target and result on one line first
+		top = m.checkBlock(now, w, 1, false)
+	}
+	if !fits() { // still too low: the machine block goes as a whole, never half
+		top, sys = m.checkBlock(now, w, 3, true), nil
+		if len(top) > fr.ih {
+			top = m.checkBlock(now, w, 3, false)
+		}
 	}
 	for i, r := range top {
 		fr.prow(i, r)
@@ -220,7 +233,7 @@ func wrapAll(s string, w, n int) []string {
 
 // checkBlock is the panel's top: everything the state file knows about the check under the cursor.
 // Target and result take at most n lines.
-func (m *model) checkBlock(now time.Time, w, n int) (rs []prow) {
+func (m *model) checkBlock(now time.Time, w, n int, curves bool) (rs []prow) {
 	_, ents := m.statusRows()
 	e := ents[min(m.scur, len(ents)-1)]
 	const lw = 10
@@ -274,6 +287,9 @@ func (m *model) checkBlock(now time.Time, w, n int) (rs []prow) {
 	if e.Reported == checks.FAIL && e.OKs > 0 {
 		rs = append(rs, prow{{fmt.Sprintf("%-*s", lw, "Recovery"), sRowDim},
 			{backText(e, m.snap.cfg.RecoverAfter), sWarn}, {" good tries after the FAIL", sBg}})
+	}
+	if curves {
+		rs = append(rs, m.checkHistory(e, now, lw, w)...)
 	}
 	if e.NoValue {
 		rs = append(rs, labRows("Verdict", lw, wrapAll("none yet (warm-up or read error)", vw, 2), sRowDim)...)
@@ -391,7 +407,7 @@ func procErr(err error) string {
 
 // machineBlock is the panel's bottom: load, pressure and uptime from /proc.
 // little-wd's own cost is in the menu's footer line, not here.
-func (m *model) machineBlock(now time.Time, w int) (rs []prow) {
+func (m *model) machineBlock(now time.Time, w int, curves bool) (rs []prow) {
 	s := m.readSys(now)
 	const lw = 16
 	vw := max(w-lw, 1)
@@ -407,9 +423,9 @@ func (m *model) machineBlock(now time.Time, w int) (rs []prow) {
 		row("load 1/5/15 min", fmt.Sprintf("%s %s %s on %s", s.load[0], s.load[1], s.load[2], plural(runtime.NumCPU(), "CPU", "CPUs")), sBg)
 	}
 	if s.noPSI != "" {
-		row("Stalled (PSI)", s.noPSI, sRowDim)
+		row("waited", s.noPSI, sRowDim)
 	} else {
-		row("Stalled (PSI)", fmt.Sprintf("%-7s%-7s%s", "10s", "60s", "5m"), sRowDim)
+		row("waited", fmt.Sprintf("%-7s%-7s%s", "10s", "60s", "5m"), sRowDim)
 		for i, l := range [3]string{"  CPU", "  RAM", "  disk"} {
 			if s.psiErr[i] != "" {
 				row(l, s.psiErr[i], sWarn)
@@ -422,6 +438,9 @@ func (m *model) machineBlock(now time.Time, w int) (rs []prow) {
 		row("up since boot", s.upErr, sWarn)
 	} else {
 		row("up since boot", upText2(s.up), sBg)
+	}
+	if curves {
+		rs = append(rs, m.historyBlock(now, w)...)
 	}
 	return rs
 }

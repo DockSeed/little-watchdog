@@ -13,6 +13,28 @@
   writes/h); it is in the menu's bottom line already.
 - From 160 columns the screen stays 160 wide and sits in the middle, so 120
   to 159 columns are used in full. 80×24 is unchanged.
+- The side panel and the "<host> right now" panel show the last 24 hours as
+  curves (▁▂▃▄▅▆▇█). For the selected service check: how often it
+  answered (red where it failed) and how fast. For this machine: CPU, RAM,
+  disk, temperature and waiting time, each with its peak. A curve has up to
+  48 cells (30 min each), fewer where the panel is narrow. On a low terminal
+  the curves are dropped first.
+- The row "Stalled (PSI)" is now "waited"; the curve under it shows the
+  rest. The "no PSI" notes stay.
+- Enter on a check shows the same curves in its details, so 80×24 has them
+  too: how often and how fast for a service check, the machine curve with
+  its peak for CPU, disk, memory and temperature.
+
+### Daemon
+
+- The state file keeps a 24 hour history in 10 minute buckets: per check how
+  often it answered and failed and the mean answer time, per machine mean
+  and peak of CPU, RAM, disk, temperature and PSI. It is written with the
+  writes that are due anyway, so the number of writes stays the same, and
+  it stays under 16 KB. Pressure is read from `/proc/pressure/*` once per
+  round; a machine without PSI or a sensor simply has no curve for it.
+  The new field `history` is additive: 0.4.0 ignores it, and a broken or
+  unknown history is dropped without stopping the daemon.
 
 ## [0.4.0] - 2026-11-05
 

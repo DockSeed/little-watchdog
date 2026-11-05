@@ -42,3 +42,31 @@ func readProc(status, stat string) (rssKB int64, cpuSec float64) {
 	}
 	return
 }
+
+// ReadPSI is the worst "some avg10" (percent) of cpu, memory and io; false where the kernel has no PSI.
+func ReadPSI() (float64, bool) { return readPSI("/proc/pressure") }
+
+func readPSI(dir string) (worst float64, ok bool) {
+	var buf [512]byte
+	for _, n := range [...]string{"cpu", "memory", "io"} {
+		f, err := os.Open(dir + "/" + n)
+		if err != nil {
+			continue
+		}
+		k, _ := f.Read(buf[:])
+		f.Close()
+		for _, l := range strings.Split(string(buf[:k]), "\n") {
+			v, found := strings.CutPrefix(l, "some avg10=")
+			if !found {
+				continue
+			}
+			if i := strings.IndexByte(v, ' '); i >= 0 {
+				v = v[:i]
+			}
+			if p, err := strconv.ParseFloat(v, 64); err == nil && p >= 0 {
+				worst, ok = max(worst, p), true
+			}
+		}
+	}
+	return
+}

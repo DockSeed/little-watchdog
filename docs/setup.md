@@ -72,10 +72,11 @@ the address starts with the host, type only the port (`:8096`) and a name.
 Each one stays a check of its own.
 
 **Screen sizes.** 80×24 is enough for everything, in one column. From 120
-columns a panel on the right shows this machine (load, PSI, uptime) and, in
+columns a panel on the right shows this machine (load, PSI, uptime, and
+the last 24 hours as curves of CPU, RAM, disk, temperature and waiting time) and, in
 the menu, every failing or unstable check with since when and why; when all
 is fine it says so in one line. In Status it shows the selected check
-instead. From 160 columns nothing new comes: the screen stays 160 wide and
+instead, with how often it answered and how fast over the last 24 hours. From 160 columns nothing new comes: the screen stays 160 wide and
 sits in the middle. What little-wd itself costs (RAM, CPU, disk writes) is
 the last line of the menu.
 

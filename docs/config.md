@@ -69,3 +69,5 @@ Disk writes (SD cards wear out): the daemon writes the state file about every
 10 minutes when nothing happens (144 a day). A flapping check writes it every
 5 minutes instead (288 a day in the worst case, 144 when steady). Every alarm
 or all-clear message adds two writes. `little-wd` shows the measured rate.
+The 24 hour history for the curves lives in the same file (field `history`, at
+most about 16 KB) and is written with those writes, never on its own.

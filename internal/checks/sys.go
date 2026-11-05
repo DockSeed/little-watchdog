@@ -71,9 +71,9 @@ func (d *Disk) Run(ctx context.Context) Result {
 	free := float64(st.Bavail) / float64(st.Blocks) * 100
 	val := fmt.Sprintf("%.0f%% free", free)
 	if free < d.MinFreePct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% free, limit %g%%", free, d.MinFreePct), Value: val, Help: Help(KindDiskFull)}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% free, limit %g%%", free, d.MinFreePct), Value: val, Help: Help(KindDiskFull), Level: 100 - free, HasLevel: true}
 	}
-	return Result{Status: OK, Value: val}
+	return Result{Status: OK, Value: val, Level: 100 - free, HasLevel: true}
 }
 
 // Mem: MemAvailable / MemTotal.
@@ -133,9 +133,9 @@ func (m *Mem) Run(ctx context.Context) Result {
 	p := float64(avail) / float64(total) * 100
 	val := fmt.Sprintf("%.0f%% available", p)
 	if p < m.MinAvailPct {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% memory available, limit %g%%", p, m.MinAvailPct), Value: val, Help: Help(KindMem)}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("only %.0f%% memory available, limit %g%%", p, m.MinAvailPct), Value: val, Help: Help(KindMem), Level: 100 - p, HasLevel: true}
 	}
-	return Result{Status: OK, Value: val}
+	return Result{Status: OK, Value: val, Level: 100 - p, HasLevel: true}
 }
 
 // Temp: highest thermal zone (or one explicit sensor), millidegrees in sysfs.
@@ -211,11 +211,11 @@ func (t *Temp) Run(ctx context.Context) Result {
 	val := fmt.Sprintf("%.1f C", v)
 	switch {
 	case v > t.MaxC:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C, limit %g C", v, t.MaxC), Value: val, Help: Help(KindTemp)}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.1f C, limit %g C", v, t.MaxC), Value: val, Help: Help(KindTemp), Level: v, HasLevel: true}
 	case v >= t.MaxC-5:
-		return Result{Status: OK, Value: val, Hold: true}
+		return Result{Status: OK, Value: val, Hold: true, Level: v, HasLevel: true}
 	}
-	return Result{Status: OK, Value: val}
+	return Result{Status: OK, Value: val, Level: v, HasLevel: true}
 }
 
 // CPU: busy share over a sliding window of /proc/stat samples.
@@ -321,9 +321,9 @@ func (c *CPU) Run(ctx context.Context) Result {
 	case !full:
 		return Result{Status: UNKNOWN, Value: fmt.Sprintf("%.0f%% (%s of %s avg)", p, Compact(age), Compact(c.Window))}
 	case p > c.MaxPct:
-		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s, limit %g%%", p, Compact(c.Window), c.MaxPct), Value: label, Help: Help(KindCPU)}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("%.0f%% busy over %s, limit %g%%", p, Compact(c.Window), c.MaxPct), Value: label, Help: Help(KindCPU), Level: p, HasLevel: true}
 	case p >= c.MaxPct-10:
-		return Result{Status: OK, Value: label, Hold: true}
+		return Result{Status: OK, Value: label, Hold: true, Level: p, HasLevel: true}
 	}
-	return Result{Status: OK, Value: label}
+	return Result{Status: OK, Value: label, Level: p, HasLevel: true}
 }

@@ -40,18 +40,18 @@ func TestHTTPModes(t *testing.T) {
 		want       Status
 		value      string
 	}{
-		{"", "/moved", OK, "answers, 302 in"}, // 0.3 rules: redirect not followed, 302 is OK
-		{"", "/missing", FAIL, "HTTP 404 in"},
-		{config.ModeLenient, "/moved", OK, "answers, 200 in"},
-		{config.ModeLenient, "/forbidden", OK, "answers, 403 in"},
-		{config.ModeLenient, "/missing", OK, "answers, 404 in"},
-		{config.ModeLenient, "/broken", FAIL, "HTTP 500 in"},
+		{"", "/moved", OK, "web 302, "}, // 0.3 rules: redirect not followed, 302 is OK
+		{"", "/missing", FAIL, "web 404, "},
+		{config.ModeLenient, "/moved", OK, "web 200, "},
+		{config.ModeLenient, "/forbidden", OK, "web 403, "},
+		{config.ModeLenient, "/missing", OK, "web 404, "},
+		{config.ModeLenient, "/broken", FAIL, "web 500, "},
 		{config.ModeLenient, "/loop", FAIL, "too many redirects"},
-		{config.ModeStrict, "/moved", OK, "answers, 200 in"},
-		{config.ModeStrict, "/forbidden", FAIL, "HTTP 403 in"},
-		{config.ModeStrict, "/missing", FAIL, "HTTP 404 in"},
-		{config.ModeStrict, "/broken", FAIL, "HTTP 500 in"},
-		{config.ModeStrict, "/headless", OK, "answers, 200 in"},
+		{config.ModeStrict, "/moved", OK, "web 200, "},
+		{config.ModeStrict, "/forbidden", FAIL, "web 403, "},
+		{config.ModeStrict, "/missing", FAIL, "web 404, "},
+		{config.ModeStrict, "/broken", FAIL, "web 500, "},
+		{config.ModeStrict, "/headless", OK, "web 200, "},
 	}
 	for _, tt := range tests {
 		r := NewHTTP("x", srv.URL+tt.path, "", 2*time.Second).SetMode("", tt.mode).Run(context.Background())
@@ -87,7 +87,7 @@ func TestHTTPLenientNotWeb(t *testing.T) {
 	}()
 	url := "http://" + ln.Addr().String()
 	h := NewHTTP("x", url, "", 2*time.Second).SetMode("", config.ModeLenient)
-	if r := h.Run(context.Background()); r.Status != OK || !r.Odd || r.Value != "answers, no website" {
+	if r := h.Run(context.Background()); r.Status != OK || !r.Odd || r.Value != "port open, no website" {
 		t.Fatalf("%+v", r)
 	}
 	if r := NewHTTP("x", url, "", 2*time.Second).SetMode("", config.ModeStrict).Run(context.Background()); r.Status != FAIL {
@@ -109,7 +109,7 @@ func TestHTTPLenientFindsTLS(t *testing.T) {
 	addr := strings.TrimPrefix(srv.URL, "https://")
 	h := NewHTTP("x", "http://"+addr, "", 2*time.Second).SetMode("", config.ModeLenient)
 	for i := 0; i < 2; i++ {
-		if r := h.Run(context.Background()); r.Status != OK || !strings.HasPrefix(r.Value, "answers, 401 in") {
+		if r := h.Run(context.Background()); r.Status != OK || !strings.HasPrefix(r.Value, "web 401, ") {
 			t.Fatalf("run %d: %+v", i, r)
 		}
 	}
@@ -129,7 +129,7 @@ func TestHTTPLenientPlain400(t *testing.T) {
 	defer srv.Close()
 	h := NewHTTP("x", srv.URL, "", 2*time.Second).SetMode("", config.ModeLenient)
 	for i := 0; i < 2; i++ {
-		if r := h.Run(context.Background()); r.Status != OK || !strings.HasPrefix(r.Value, "answers, 400 in") {
+		if r := h.Run(context.Background()); r.Status != OK || !strings.HasPrefix(r.Value, "web 400, ") {
 			t.Fatalf("run %d: %+v", i, r)
 		}
 	}
@@ -144,7 +144,7 @@ func TestPingLoopback(t *testing.T) {
 	if r.Status == FAIL && r.Detail == PingNotAllowed {
 		t.Skip("ping not allowed here (net.ipv4.ping_group_range)")
 	}
-	if r.Status != OK || !strings.HasPrefix(r.Value, "answers in ") || !strings.HasSuffix(r.Value, " ms") {
+	if r.Status != OK || !strings.HasPrefix(r.Value, "ping answers, ") || !strings.HasSuffix(r.Value, " ms") {
 		t.Fatalf("%+v", r)
 	}
 	if p.ID() != "ping:lo" || p.Name() != "Loopback" || p.Type() != "ping" {
@@ -186,7 +186,7 @@ func TestBuildNames(t *testing.T) {
 	}
 }
 
-// A redirect to a dead target is a failure, not "answers, no website": the first hop
+// A redirect to a dead target is a failure, not "port open, no website": the first hop
 // answered as a website, the place it points to is gone.
 func TestLenientRedirectToDeadTargetFails(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")

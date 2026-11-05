@@ -102,9 +102,9 @@ func TestBuildRowsGroupsByHost(t *testing.T) {
 func groupCfg(t *testing.T) string {
 	sf := writeState(t,
 		ent{"cpu", "cpu", "OK", "5% (20s avg)", 0, time.Time{}, time.Time{}},
-		ent{"ping", "box", "OK", "answers in 1 ms", 0, time.Time{}, time.Time{}},
-		ent{"http", "web", "OK", "answers, 200 in 2 ms", 0, time.Time{}, time.Time{}},
-		ent{"tcp", "dns", "OK", "open in 0ms", 0, time.Time{}, time.Time{}},
+		ent{"ping", "box", "OK", "ping answers, 1 ms", 0, time.Time{}, time.Time{}},
+		ent{"http", "web", "OK", "web 200, 2 ms", 0, time.Time{}, time.Time{}},
+		ent{"tcp", "dns", "OK", "port open, 0 ms", 0, time.Time{}, time.Time{}},
 	)
 	state.Beat(sf, time.Now())
 	return newCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nSTATE_FILE="+sf+

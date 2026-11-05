@@ -238,7 +238,7 @@ func (h *HTTP) Run(ctx context.Context) Result {
 	}
 	defer resp.Body.Close()
 	took := ms(time.Since(start))
-	val := fmt.Sprintf("HTTP %d in %s", resp.StatusCode, took)
+	val := fmt.Sprintf("web %d, %s", resp.StatusCode, took)
 	if resp.StatusCode < 200 || resp.StatusCode > 399 {
 		return Result{Status: FAIL, Detail: fmt.Sprintf("answered with HTTP %d", resp.StatusCode), Value: val, Help: Help(httpKind(resp.StatusCode))}
 	}
@@ -251,7 +251,7 @@ func (h *HTTP) Run(ctx context.Context) Result {
 			return Result{Status: FAIL, Detail: "HTTP " + fmt.Sprint(resp.StatusCode) + ", but the expected text was not found", Value: val, Help: Help(KindNoText)}
 		}
 	}
-	return Result{Status: OK, Value: fmt.Sprintf("answers, %d in %s", resp.StatusCode, took)}
+	return Result{Status: OK, Value: val}
 }
 
 func (h *HTTP) do(ctx context.Context, method string) (*http.Response, error) {
@@ -261,7 +261,7 @@ func (h *HTTP) do(ctx context.Context, method string) (*http.Response, error) {
 func (h *HTTP) send(ctx context.Context, c *http.Client, method, url string, connected *bool) (*http.Response, error) {
 	if connected != nil {
 		// Only the first hop counts: after a redirect the target was named by the
-		// server, and a dead target is a failure, not "answers, no website".
+		// server, and a dead target is a failure, not "port open, no website".
 		hops := 0
 		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 			GetConn: func(string) {
@@ -357,16 +357,16 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 			return Result{Status: FAIL, Detail: errInternalAddr.Error(), Value: "internal address refused"}
 		}
 		if h.mode == config.ModeLenient && notWeb(ctx, err, connected) {
-			return Result{Status: OK, Odd: true, Value: "answers, no website"}
+			return Result{Status: OK, Odd: true, Value: "port open, no website"}
 		}
 		return netFail(err, h.timeout, h.url, time.Since(start))
 	}
 	defer resp.Body.Close()
 	took := ms(time.Since(start))
 	if !ok(resp.StatusCode) {
-		return Result{Status: FAIL, Detail: fmt.Sprintf("answered with HTTP %d", resp.StatusCode), Value: fmt.Sprintf("HTTP %d in %s", resp.StatusCode, took), Help: Help(httpKind(resp.StatusCode))}
+		return Result{Status: FAIL, Detail: fmt.Sprintf("answered with HTTP %d", resp.StatusCode), Value: fmt.Sprintf("web %d, %s", resp.StatusCode, took), Help: Help(httpKind(resp.StatusCode))}
 	}
-	val := fmt.Sprintf("answers, %d in %s", resp.StatusCode, took)
+	val := fmt.Sprintf("web %d, %s", resp.StatusCode, took)
 	if h.contains != "" {
 		found, err := containsStream(resp.Body, h.contains)
 		if err != nil {
@@ -455,10 +455,10 @@ func (t *TCP) Run(ctx context.Context) Result {
 	c, err := d.DialContext(ctx, "tcp", t.addr)
 	if err == nil {
 		c.Close()
-		return Result{Status: OK, Value: fmt.Sprintf("open in %dms", time.Since(start).Milliseconds())}
+		return Result{Status: OK, Value: "port open, " + ms(time.Since(start))}
 	}
 	if t.host && errors.Is(err, syscall.ECONNREFUSED) {
-		return Result{Status: OK, Value: "refused (alive)"}
+		return Result{Status: OK, Value: "port closed, host up, " + ms(time.Since(start))}
 	}
 	if t.host {
 		r := netFail(err, t.timeout, t.addr, time.Since(start))

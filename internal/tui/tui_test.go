@@ -276,8 +276,8 @@ func fixture(t *testing.T) (cfg string) {
 	sf := writeState(t,
 		ent{"http", "nextcloud", "OK", "HTTP 200 in 2ms", 0, time.Time{}, time.Time{}},
 		ent{"http", "photos", "FAIL", "dial tcp 192.0.2.12:2283: connect: connection refused", 3, down, down.Add(time.Minute)},
-		ent{"tcp", "dns", "OK", "open in 0ms", 0, time.Time{}, time.Time{}},
-		ent{"host", "router", "OK", "open in 2ms", 0, time.Time{}, time.Time{}},
+		ent{"tcp", "dns", "OK", "port open, 0 ms", 0, time.Time{}, time.Time{}},
+		ent{"host", "router", "OK", "port open, 2 ms", 0, time.Time{}, time.Time{}},
 		ent{"cpu", "cpu", "OK", "5% (20s avg)", 0, time.Time{}, time.Time{}},
 		ent{"disk", "disk /", "OK", "77% free", 0, time.Time{}, time.Time{}},
 		ent{"temp", "temperature", "OK", "33.6 C", 0, time.Time{}, time.Time{}},
@@ -322,8 +322,8 @@ func TestStatus80(t *testing.T) { // status
 	has(t, rs[4], "[OK]", "cpu", "5% (20s avg)")
 	has(t, rs[7], "Services")
 	// alone on their host: in the usual order; two on 192.0.2.12: under the host
-	has(t, rs[8], "[OK]    dns           tcp    open in 0ms")
-	has(t, rs[9], "[OK]    router        host   open in 2ms")
+	has(t, rs[8], "[OK]    dns           tcp    port open, 0 ms")
+	has(t, rs[9], "[OK]    router        host   port open, 2 ms")
 	if got := rs[10]; got != "│    192.0.2.12"+strings.Repeat(" ", 64)+"│" {
 		t.Fatalf("host line: %q", got)
 	}
@@ -758,7 +758,7 @@ func TestAddWebsiteAndQuit(t *testing.T) {
 	r.send(addr + "\rImmich Fotos ä\r")
 	r.wait("Saved as Immich Fotos ä.")
 	f := r.frame()
-	has(t, f, "✓ answers, 200 in", "Next address, or Esc to leave.")
+	has(t, f, "✓ web 200, ", "Next address, or Esc to leave.")
 	lacks(t, f, addr) // the form is empty for the next address
 	want := pre + "# my config\nTELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nHTTP_IMMICH_FOTOS_AE=" + web.URL + ` name="Immich Fotos ä" mode=lenient` + "\n"
 	if got := read(t, p); got != want {

@@ -51,7 +51,7 @@ func (p *Ping) Run(ctx context.Context) Result {
 	rtt, err := p.echo(ctx, ip)
 	switch {
 	case err == nil:
-		return Result{Status: OK, Value: "answers in " + ms(rtt)}
+		return Result{Status: OK, Value: "ping answers, " + ms(rtt)}
 	case errors.Is(err, syscall.EACCES): // the kernel's answer when the group is outside ping_group_range
 		return Result{Status: FAIL, Detail: PingNotAllowed, Value: "ping not allowed", Help: Help(KindPingBlocked)}
 	case errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EPROTONOSUPPORT), errors.Is(err, syscall.EAFNOSUPPORT):

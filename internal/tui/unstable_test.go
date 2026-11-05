@@ -17,7 +17,7 @@ func shaky(t *testing.T) string {
 	sf := writeState(t,
 		ent{"http", "nas", "OK", "no answer within 10 s", 2, time.Time{}, time.Time{}},
 		ent{"http", "photos", "FAIL", "HTTP 502", 3, time.Now().Add(-time.Hour), time.Time{}},
-		ent{"tcp", "dns", "OK", "open in 0ms", 0, time.Time{}, time.Time{}},
+		ent{"tcp", "dns", "OK", "port open, 0 ms", 0, time.Time{}, time.Time{}},
 	)
 	b, _ := os.ReadFile(sf)
 	s := strings.Replace(string(b), `"fails":3,"value":"HTTP 502"`, `"fails":0,"oks":1,"value":"HTTP 502"`, 1)

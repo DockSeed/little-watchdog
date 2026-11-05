@@ -17,10 +17,10 @@ Unofficial; not affiliated with Telegram or Healthchecks.io.
 │    [OK]    disk /        disk   73% free                    07:19    06:58   │
 │    [OK]    temperature   temp   46.2 C                      07:19    06:58   │
 │  Services                                                                    │
-│    [OK]    nextcloud     http   answers, 200 in 41 ms       07:19    06:58   │
+│    [OK]    nextcloud     http   web 200, 41 ms              07:19    06:58   │
 │    [FAIL]  photos        http   connection refused, nothi~  07:19    07:09   │
-│    [OK]    ssh           tcp    open in 1ms                 07:19    06:58   │
-│    [OK]    nas           host   open in 2ms                 07:19    06:58   │
+│    [OK]    ssh           tcp    port open, 1 ms             07:19    06:58   │
+│    [OK]    nas           host   port open, 2 ms             07:19    06:58   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
  cpu: OK since 06:58. No Telegram message yet.
 ```

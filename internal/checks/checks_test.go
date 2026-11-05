@@ -210,7 +210,7 @@ func TestTCPAndHost(t *testing.T) {
 	}
 	// refused: tcp = FAIL, host = OK
 	r := (&TCP{name: "h", addr: addr, timeout: time.Second, host: true}).Run(ctx)
-	if r.Status != OK || !strings.Contains(r.Value, "alive") {
+	if r.Status != OK || !strings.HasPrefix(r.Value, "port closed, host up, ") {
 		t.Fatal(r)
 	}
 	// unreachable (TEST-NET-1) with short timeout: host = FAIL NoAnswer

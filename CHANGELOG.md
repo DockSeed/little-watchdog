@@ -7,6 +7,13 @@
 - First start only: a welcome screen with a sitting dog, one sentence on what
   the watchdog does, then the address field and Telegram setup as before.
 
+### Changed
+
+- Results say first what was checked, then the time: `web 200, 41 ms`,
+  `port open, 1 ms`, `ping answers, 3 ms`, `port open, no website`; a host
+  check whose port is closed reads `port closed, host up, 2 ms`. Old results
+  in the state file keep their wording until the next check.
+
 ## [0.5.1] - 2026-11-05
 
 ### Security

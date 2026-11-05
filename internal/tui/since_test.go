@@ -50,7 +50,7 @@ func TestSinceCountsFromTheDaemonStartAfterARestart(t *testing.T) {
 func TestStatusDimsAWarmUpPlaceholder(t *testing.T) {
 	sf := writeState(t,
 		ent{"cpu", "cpu", "OK", "first value in 1 min", 0, time.Time{}, time.Time{}},
-		ent{"tcp", "dns", "OK", "open in 0ms", 0, time.Time{}, time.Time{}})
+		ent{"tcp", "dns", "OK", "port open, 0 ms", 0, time.Time{}, time.Time{}})
 	b, _ := os.ReadFile(sf)
 	os.WriteFile(sf, []byte(strings.Replace(string(b), `"value":"first value in 1 min"`, `"value":"first value in 1 min","no_value":true`, 1)), 0o600)
 	state.Beat(sf, time.Now())

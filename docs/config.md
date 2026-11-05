@@ -41,7 +41,7 @@ without quotes takes the rest of the line, so put it last or quote it.
 | Option | For | Meaning |
 |---|---|---|
 | `name="Immich Fotos"` | all checks | Name shown in `little-wd` and in Telegram messages; any text. Without it the name is `<NAME>` in lower case. |
-| `mode=lenient` | `HTTP_` | Follows up to 5 redirects; any answer below 500 is OK, and a port that answers but is no website ("answers, no website"). An `http://` address on a port that speaks TLS is asked over `https://`, without a certificate check. |
+| `mode=lenient` | `HTTP_` | Follows up to 5 redirects; any answer below 500 is OK, and a port that answers but is no website ("port open, no website"). An `http://` address on a port that speaks TLS is asked over `https://`, without a certificate check. |
 | `mode=strict` | `HTTP_` | Follows up to 5 redirects; only 200 to 299 is OK. |
 
 Without `mode=` an `HTTP_` line keeps the old rule: 200 to 399, no redirects

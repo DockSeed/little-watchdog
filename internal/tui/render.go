@@ -90,12 +90,12 @@ func (m *model) refresh() {
 	}
 	if s.cfg == nil {
 		s.es, s.esErr = nil, ""
-	} else if sig := statSig(s.cfg.StateFile); sig != m.stSig || sig == (stateSig{}) {
+	} else if sig := statSig(statePath(s.cfg)); sig != m.stSig || sig == (stateSig{}) {
 		m.stSig = sig
 		var err error
 		var st state.Snap
 		s.es, s.esErr, s.tg, s.dm, s.up, s.foot, s.hist = nil, "", state.Telegram{}, state.Deadman{}, state.Updates{}, nil, nil
-		if st, err = state.ReadAll(s.cfg.StateFile); err != nil {
+		if st, err = state.ReadAll(statePath(s.cfg)); err != nil {
 			s.esErr = err.Error()
 		} else {
 			s.es = st.Entries
@@ -137,9 +137,22 @@ func (m *model) refresh() {
 	if s.cfg != nil {
 		s.pairing = config.PairingActive(m.file.Path, time.Now())
 		s.linked, _ = config.LinkedAt(m.file.Path)
-		s.age, s.stale = state.Stale(s.cfg.StateFile, s.cfg.StaleAfter(), time.Now())
+		s.age, s.stale = state.Stale(statePath(s.cfg), s.cfg.StaleAfter(), time.Now())
 	}
 	m.snap = s
+}
+
+// statePath is the state file to read. Right after a switch between disk and RAM the daemon
+// still writes to the other place until its next cycle moves the state: while the new place
+// has no live heartbeat and the other one has, that one is read, so no "daemon not running".
+func statePath(c *config.Config) string {
+	now := time.Now()
+	if _, stale := state.Stale(c.StateFile, c.StaleAfter(), now); stale && c.OtherStateFile() != "" {
+		if _, st := state.Stale(c.OtherStateFile(), c.StaleAfter(), now); !st {
+			return c.OtherStateFile()
+		}
+	}
+	return c.StateFile
 }
 
 type stateSig struct {
@@ -598,7 +611,7 @@ func (m *model) drawMenu(fr *frame) string {
 		fr.put(i, 22, text, val)
 	}
 	if m.snap.foot != nil && fr.ih > len(menuItems)+1 && !m.snap.stale {
-		fr.put(fr.ih-1, 2, footLine(m.snap.foot), sRowDim)
+		fr.put(fr.ih-1, 2, footLine(m.snap.foot, m.snap.cfg != nil && m.snap.cfg.StateInRAM), sRowDim)
 	}
 	if it := menuItems[m.cur]; m.snap.cfg == nil && m.snap.cfgErr != "" && it != "Status" && it != "Add check" && it != "Quit" {
 		return "Fix " + m.file.Path + ": " + m.snap.cfgErr
@@ -619,12 +632,16 @@ func (m *model) drawMenu(fr *frame) string {
 	return about[menuItems[m.cur]]
 }
 
-// footLine is what the daemon costs, from its last state write.
-func footLine(f *state.Footprint) string {
+// footLine is what the daemon costs, from its last state write. With the state in RAM
+// there are no disk writes to count: the line says so instead of "0 disk writes/h".
+func footLine(f *state.Footprint, ram bool) string {
 	up := f.At.Sub(f.Started)
 	s := "little-wd: " + ramText(f) + " RAM"
 	if up >= time.Minute {
 		s += fmt.Sprintf(" · %.1f%% CPU", f.CPUSec/up.Seconds()*100)
+	}
+	if ram {
+		return s + " · state in RAM, no disk writes · up " + upText(up)
 	}
 	return s + " · " + writesText(f, "disk write", "disk writes") + " · up " + upText(up)
 }

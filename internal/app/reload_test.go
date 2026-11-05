@@ -316,3 +316,40 @@ func TestWaitConfigBeatsAtTheConfiguredStateFile(t *testing.T) {
 		t.Fatal("heartbeat at the default path although the config names another")
 	}
 }
+
+// Switching between disk and RAM while running: the state moves with the next reload and
+// the old copy is gone; the history and "since" stay.
+func TestReloadMovesStateBetweenDiskAndRAM(t *testing.T) {
+	ram := t.TempDir()
+	t.Setenv("RUNTIME_DIRECTORY", ram)
+	r := newRL(t, tok, "TCP_A=127.0.0.1:1")
+	ctx := context.Background()
+	r.a.Cycle(ctx)
+	since := r.a.Eng.Snapshot()[1].Since // tcp:a, after the system check
+	if _, err := os.Stat(r.state); err != nil {
+		t.Fatal("no state on disk before the switch:", err)
+	}
+	r.write(r.body(tok, "TCP_A=127.0.0.1:1", "STATE_IN_RAM=yes"))
+	r.a.Cycle(ctx)
+	if _, err := os.Stat(r.state); !os.IsNotExist(err) {
+		t.Fatalf("disk copy stays: %v", err)
+	}
+	if _, err := os.Stat(r.state + state.BeatSuffix); !os.IsNotExist(err) {
+		t.Fatalf("disk heartbeat stays: %v", err)
+	}
+	st, err := state.ReadAll(filepath.Join(ram, "state.json"))
+	if err != nil || len(st.Entries) < 2 || st.Entries[1].ID != "tcp:a" || !st.Entries[1].Since.Equal(since) {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if _, ok := state.LastBeat(filepath.Join(ram, "state.json")); !ok {
+		t.Fatal("no heartbeat in RAM")
+	}
+	r.write(r.body(tok, "TCP_A=127.0.0.1:1", "STATE_IN_RAM=no"))
+	r.a.Cycle(ctx)
+	if _, err := os.Stat(r.state); err != nil {
+		t.Fatal("state is not back on disk:", err)
+	}
+	if _, err := os.Stat(filepath.Join(ram, "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("RAM copy stays: %v", err)
+	}
+}

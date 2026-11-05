@@ -27,6 +27,17 @@
 
 ### Daemon
 
+- New option `STATE_IN_RAM=yes` ("State in RAM" in Settings): the state file
+  lives in `/run/little-watchdog` and the daemon writes nothing to disk.
+  The unit gets `RuntimeDirectory=little-watchdog` (mode 0750, kept over a
+  restart). Default stays on disk. Switching says in one sentence that a
+  reboot loses the history and the "since" times and may send an alarm
+  twice; the running daemon moves the state at the next reload. The bottom
+  line of little-wd says "state in RAM, no disk writes" instead of
+  counting writes. An older version skips the new key with a warning.
+- Commands sent while the daemon was down are not answered after a start,
+  with or without a state file (the Telegram offset was never kept in it);
+  now covered by a test.
 - The state file keeps a 24 hour history in 10 minute buckets: per check how
   often it answered and failed and the mean answer time, per machine mean
   and peak of CPU, RAM, disk, temperature and PSI. It is written with the

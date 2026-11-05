@@ -348,3 +348,38 @@ func TestQuote(t *testing.T) {
 		}
 	}
 }
+
+func TestStateInRAM(t *testing.T) {
+	t.Setenv("RUNTIME_DIRECTORY", "")
+	c, err := Parse(strings.NewReader("STATE_IN_RAM=yes\n"), false)
+	if err != nil || !c.StateInRAM || c.StateFile != "/run/little-watchdog/state.json" || len(c.Warnings) != 0 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for _, v := range []string{"no", "off", ""} {
+		if c, err = Parse(strings.NewReader("STATE_IN_RAM="+v+"\n"), false); err != nil || c.StateInRAM || c.StateFile != Defaults().StateFile {
+			t.Fatalf("%q: %+v %v", v, c, err)
+		}
+	}
+	if _, err = Parse(strings.NewReader("STATE_IN_RAM=maybe\n"), false); err == nil || !strings.Contains(err.Error(), "STATE_IN_RAM") {
+		t.Fatalf("%v", err)
+	}
+	// the disk path stays the one STATE_FILE says; RAM mode names its own and warns about STATE_FILE
+	c, _ = Parse(strings.NewReader("STATE_FILE=/srv/s.json\n"), false)
+	if c.StateFile != "/srv/s.json" || c.StateInRAM {
+		t.Fatalf("%+v", c)
+	}
+	c, _ = Parse(strings.NewReader("STATE_FILE=/srv/s.json\nSTATE_IN_RAM=yes\n"), false)
+	if c.StateFile != "/run/little-watchdog/state.json" || len(c.Warnings) != 1 || !strings.Contains(c.Warnings[0], "STATE_FILE is ignored") {
+		t.Fatalf("%+v", c)
+	}
+	t.Setenv("RUNTIME_DIRECTORY", "/run/x/")
+	c, _ = Parse(strings.NewReader("STATE_IN_RAM=yes\n"), false)
+	if c.StateFile != "/run/x/state.json" {
+		t.Fatal(c.StateFile)
+	}
+	p := filepath.Join(t.TempDir(), "c")
+	os.WriteFile(p, []byte("STATE_FILE=/srv/s.json\nSTATE_IN_RAM=yes\nINTERVAL=1s\n"), 0o600) // invalid elsewhere
+	if got := LenientStateFile(p, "/def"); got != "/run/x/state.json" {
+		t.Fatal(got)
+	}
+}

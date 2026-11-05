@@ -124,6 +124,22 @@ func (a *App) apply(nc *config.Config) {
 	a.Cfg, a.Checks, a.TG, a.DM = nc, cs, tg, dm
 	a.mu.Unlock()
 	a.Log.Printf("config reloaded: %d checks, interval %s", len(cs), nc.Interval)
+	if nc.StateFile != old.StateFile {
+		a.moveState(old.StateFile, nc.StateFile)
+	}
+}
+
+// moveState follows a switch between disk and RAM: the engine already holds the state, so it
+// is written to the new place at once (the UI reads there) and the old copy goes away. If the
+// new place cannot be written, the old copy stays and the next cycle tries again.
+func (a *App) moveState(from, to string) {
+	if err := a.Eng.Save(to); err != nil {
+		a.Log.Printf("warning: state file %s: %v (the old one stays at %s)", to, err, from)
+		return
+	}
+	a.Log.Printf("state file moved from %s to %s", from, to)
+	os.Remove(from)
+	os.Remove(from + state.BeatSuffix)
 }
 
 // sameSetup reports whether c would behave exactly like its predecessor under nc.

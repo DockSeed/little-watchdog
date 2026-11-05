@@ -5,6 +5,7 @@ package tui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,21 @@ func TestFootprintLineFitsAndIsRight(t *testing.T) {
 	r.finish()
 }
 
+func TestFootprintLineInRAMMode(t *testing.T) {
+	sf := writeState(t, ent{"tcp", "b", "OK", "open", 0, time.Time{}, time.Time{}})
+	at := time.Now()
+	withKey(t, sf, "footprint", `{"started":"`+at.Add(-3*time.Hour).UTC().Format(time.RFC3339)+`","at":"`+at.UTC().Format(time.RFC3339)+`","writes":12,"rss_kb":6144,"cpu_s":10.8}`)
+	state.Beat(sf, time.Now())
+	t.Setenv("RUNTIME_DIRECTORY", filepath.Dir(sf)) // as the unit's RuntimeDirectory= sets it
+	r := start(t, &App{Path: newCfg(t, "STATE_IN_RAM=yes\nTCP_B=h:1\n"), Size: sized})
+	r.wait("little-wd: 6 MB RAM")
+	rs := check80(t, r.frame())
+	has(t, rs[18], "little-wd: 6 MB RAM · 0.1% CPU · state in RAM, no disk writes · up 3 h")
+	lacks(t, r.frame(), "writes/h")
+	r.send("\x03")
+	r.finish()
+}
+
 func TestFootLine(t *testing.T) {
 	t0 := time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
@@ -151,9 +167,17 @@ func TestFootLine(t *testing.T) {
 		{state.Footprint{Started: t0, At: t0.Add(24 * time.Hour), Writes: 288 * 2, RSSKB: 12 * 1024, CPUSec: 864}, "little-wd: 12 MB RAM · 1.0% CPU · 24 disk writes/h · up 24 h"},
 		{state.Footprint{Started: t0, At: t0.Add(72 * time.Hour), Writes: 144 * 3, RSSKB: 6144, CPUSec: 43.2}, "little-wd: 6 MB RAM · 0.0% CPU · 6.0 disk writes/h · up 3 d"},
 	} {
-		if got := footLine(&c.f); got != c.want {
+		if got := footLine(&c.f, false); got != c.want {
 			t.Errorf("\n got %q\nwant %q", got, c.want)
 		}
+	}
+}
+
+func TestFootLineInRAM(t *testing.T) {
+	t0 := time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC)
+	f := state.Footprint{Started: t0, At: t0.Add(3 * time.Hour), Writes: 40, RSSKB: 6144, CPUSec: 10.8}
+	if got, want := footLine(&f, true), "little-wd: 6 MB RAM · 0.1% CPU · state in RAM, no disk writes · up 3 h"; got != want {
+		t.Errorf("\n got %q\nwant %q", got, want)
 	}
 }
 

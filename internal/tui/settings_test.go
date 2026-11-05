@@ -4,12 +4,14 @@
 package tui
 
 import (
+	"github.com/DockSeed/little-watchdog/internal/state"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const wipe = "\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f"
@@ -48,7 +50,7 @@ func TestSettingsSave(t *testing.T) {
 	r.wait("Good rounds in a row after an alarm, then the all-clear")
 	r.send("\x1b[B")
 	r.wait("counts as failed")
-	r.send("\x1b[A\x1b[A\x1b[A" + wipe + "2m\r" + wipe + "5\r\r\r")
+	r.send("\x1b[A\x1b[A\x1b[A" + wipe + "2m\r" + wipe + "5\r\r\r\r")
 	r.wait("Saved")
 	got := read(t, p)
 	if !strings.Contains(got, "# keep\nINTERVAL=2m\nFAIL_AFTER=5\n") || strings.Contains(got, "RECOVER_AFTER") || strings.Contains(got, "TIMEOUT") {
@@ -76,7 +78,7 @@ func TestSettingsRejectInvalid(t *testing.T) {
 		t.Run(c.val, func(t *testing.T) {
 			r, p := settingsRig(t, "")
 			before := read(t, p)
-			r.send(strings.Repeat("\x1b[B", c.field) + wipe + c.val + strings.Repeat("\x1b[B", 4-c.field) + "\r")
+			r.send(strings.Repeat("\x1b[B", c.field) + wipe + c.val + strings.Repeat("\x1b[B", 5-c.field) + "\r")
 			r.wait("Error: ")
 			has(t, r.frame(), c.want, "[ Save ]")
 			check80(t, r.frame())
@@ -195,11 +197,83 @@ func TestTempSensor(t *testing.T) {
 func TestSettingsKeepUntouchedValuesAsWritten(t *testing.T) {
 	r, p := settingsRig(t, "INTERVAL=60s\nTIMEOUT=1500ms\n")
 	has(t, r.frame(), "Check every        60s", "Timeout per check  1500ms")
-	r.send("\x1b[B" + wipe + "4\r\r\r")
+	r.send("\x1b[B" + wipe + "4\r\r\r\r")
 	r.wait("Saved")
 	if got := read(t, p); !strings.HasSuffix(got, "\nINTERVAL=60s\nTIMEOUT=1500ms\nFAIL_AFTER=4\n") {
 		t.Fatalf("%q", got)
 	}
 	r.send("\x03")
 	r.finish()
+}
+
+func TestSettingsStateInRAMSwitch(t *testing.T) {
+	r, p := settingsRig(t, "# keep\n")
+	has(t, r.frame(), "State in RAM       no")
+	r.send("\x1b[B\x1b[B\x1b[B\x1b[B")
+	r.wait("0 disk writes. no = on disk")
+	r.send(wipe + "yes\r")
+	r.wait("Saved")
+	if got := read(t, p); !strings.HasSuffix(got, "# keep\nSTATE_IN_RAM=yes\n") {
+		t.Fatalf("%q", got)
+	}
+	has(t, r.frame(), "The state now lives in RAM", "a reboot loses the history", "alarm may be sent", "is missing: the installed", "applies it within one interval")
+	r.send("\x03")
+	r.finish()
+
+	// and back: only the value changes, the sentence says what it costs
+	r, p = settingsRig(t, "STATE_IN_RAM=yes\n")
+	has(t, r.frame(), "State in RAM       yes")
+	r.send("\x1b[B\x1b[B\x1b[B\x1b[B" + wipe + "no\r")
+	r.wait("Saved")
+	if got := read(t, p); !strings.HasSuffix(got, "STATE_IN_RAM=no\n") {
+		t.Fatalf("%q", got)
+	}
+	has(t, r.frame(), "back on disk", "16 writes an hour")
+	r.send("\x03")
+	r.finish()
+}
+
+func TestSettingsStateInRAMRejectsJunk(t *testing.T) {
+	r, p := settingsRig(t, "")
+	before := read(t, p)
+	r.send("\x1b[B\x1b[B\x1b[B\x1b[B" + wipe + "maybe\r")
+	r.wait("STATE_IN_RAM: invalid value (expected yes or no)")
+	if read(t, p) != before {
+		t.Fatal("config changed")
+	}
+	r.send("\x03")
+	r.finish()
+}
+
+// Between saving the switch and the daemon's move the new place has no heartbeat yet: the old
+// place is read, so the screen shows the checks and no "daemon not running", both ways.
+func TestSettingsSwitchWindowIsNoFalseAlarm(t *testing.T) {
+	ram := t.TempDir()
+	t.Setenv("RUNTIME_DIRECTORY", ram)
+	r, p := settingsRig(t, "")
+	r.send("\x1b[B\x1b[B\x1b[B\x1b[B" + wipe + "yes\r")
+	r.wait("Saved")
+	lacks(t, r.frame(), "does not seem to run")
+	r.send("x")
+	r.wait("every 1m")
+	lacks(t, r.frame(), "daemon not running")
+	r.send("\x03")
+	r.finish()
+
+	// back: the daemon has moved the state to RAM, the disk place is empty for a moment
+	sf := filepath.Join(ram, "state.json")
+	state.Beat(sf, time.Now())
+	r = start(t, &App{Path: newCfg(t, "STATE_IN_RAM=yes\nSTATE_FILE="+filepath.Join(t.TempDir(), "disk.json")+"\n"), Size: sized})
+	r.wait("Dead-man switch")
+	r.send("jjjj\r")
+	r.wait("Timeout per check")
+	r.send("\x1b[B\x1b[B\x1b[B\x1b[B" + wipe + "no\r")
+	r.wait("Saved")
+	lacks(t, r.frame(), "does not seem to run")
+	r.send("x")
+	r.wait("every 1m")
+	lacks(t, r.frame(), "daemon not running")
+	r.send("\x03")
+	r.finish()
+	_ = p
 }

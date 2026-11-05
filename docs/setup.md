@@ -84,7 +84,9 @@ The own machine (disk, memory, temperature, CPU) is watched by default; change i
 limits under **System checks**. The temperature check takes the hottest sensor;
 to pick one, fill in **Sensor** under System checks > temperature. **Settings**
 sets how often the checks run and after how many rounds the alarm and the
-all-clear go out. `?` shows the keys. Hand editing: [config.md](config.md).
+all-clear go out, and has **State in RAM**: `yes` stops every disk write (the state
+then lives in `/run/little-watchdog`, readable for the group `little-wd`), at the price
+that a reboot loses the history and may send an alarm twice ([config.md](config.md)). `?` shows the keys. Hand editing: [config.md](config.md).
 
 ## 4. Dead-man's-switch (recommended)
 

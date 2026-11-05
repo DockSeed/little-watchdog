@@ -26,6 +26,7 @@ one `INTERVAL`, or at once with `sudo systemctl reload little-watchdog`.
 | `CPU_MAX_PCT` | `90` | Alarm above this average load. |
 | `CPU_WINDOW` | `15m` | Window for the average, at least `INTERVAL`. |
 | `STATE_FILE` | `/var/lib/little-watchdog/state.json` | State file. |
+| `STATE_IN_RAM` | `no` | `yes` keeps the state file in RAM (`/run/little-watchdog/state.json`, the unit's `RuntimeDirectory=`) and `STATE_FILE` is ignored. No disk writes. |
 | `TELEGRAM_API_URL` | `https://api.telegram.org` | For tests. |
 
 `0` (or empty `DISK_PATHS`) switches an own-host check off. `<NAME>` is
@@ -59,7 +60,7 @@ before 0.4.0 skip `PING_` lines with a warning.
 
 Where in `little-wd` (it checks the values with the same limits):
 
-- Settings: `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER`, `TIMEOUT`.
+- Settings: `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER`, `TIMEOUT`, `STATE_IN_RAM`.
 - Dead-man switch: `DEADMAN_URL`, `DEADMAN_EVERY`.
 - System checks: the limits (and on or off), `CPU_WINDOW`, `TEMP_SENSOR`.
 - File only: `STATE_FILE`, `TELEGRAM_API_URL`, more disks in `DISK_PATHS`
@@ -71,3 +72,16 @@ Disk writes (SD cards wear out): the daemon writes the state file about every
 or all-clear message adds two writes. `little-wd` shows the measured rate.
 The 24 hour history for the curves lives in the same file (field `history`, at
 most about 16 KB) and is written with those writes, never on its own.
+
+With `STATE_IN_RAM=yes` (Settings, "State in RAM") the daemon writes nothing
+to disk: the state file lives in `/run/little-watchdog`, which the unit
+creates with `RuntimeDirectory=` (owner `little-wd`, mode 0750, so the group
+`little-wd` reads it). A restart of the service keeps it. A reboot or a stop
+loses the history, the "since" times and what was already announced, so an
+alarm that was sent before may be sent once more. The bottom line of
+`little-wd` then reads "state in RAM, no disk writes". Switching while the
+daemon runs moves the state at the next reload and removes the old copy. A
+unit file from before this version has no `RuntimeDirectory=`: update the
+package or the unit first, otherwise the state cannot be written. An older
+little-watchdog skips `STATE_IN_RAM` with a warning and keeps its state on
+disk.

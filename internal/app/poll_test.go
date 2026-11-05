@@ -130,3 +130,33 @@ func TestLongStatusIsSentInParts(t *testing.T) {
 		}
 	}
 }
+
+// The getUpdates offset lives in memory only. A daemon without a state file
+// (lost, deleted, or kept in RAM) must not answer commands from before its start.
+func TestPollIgnoresCommandsFromBeforeStart(t *testing.T) {
+	f, srv := testfake.Start(tok)
+	defer srv.Close()
+	for i := 0; i < 3; i++ {
+		f.AddMessage(42, "/status") // sent while the daemon was down
+	}
+	var buf bytes.Buffer
+	a, _ := newApp(t, srv.URL, "", &buf) // fresh state, no file
+	ctx, cancel := context.WithCancel(context.Background())
+	a.Cycle(ctx)
+	done := make(chan struct{})
+	go func() { a.Poll(ctx); close(done) }()
+	time.Sleep(700 * time.Millisecond)
+	if got := f.Texts(); len(got) != 0 {
+		t.Fatalf("answered old commands: %q", got)
+	}
+	f.AddMessage(42, "/status") // a new one is answered
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(f.Texts()) == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got := f.Texts(); len(got) != 1 {
+		t.Fatalf("%q", got)
+	}
+}

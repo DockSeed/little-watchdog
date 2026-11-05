@@ -63,7 +63,9 @@ type Config struct {
 	FailAfter    int
 	RecoverAfter int
 	Timeout      time.Duration
-	StateFile    string
+	StateFile    string // where the daemon keeps its state: the disk path, or RAMStateFile() when StateInRAM
+	StateInRAM   bool   // STATE_IN_RAM=yes: the state lives under /run, no disk writes
+	DiskState    string // the state file on disk (STATE_FILE), also while StateInRAM overrides StateFile
 	Checks       []CheckSpec
 	DiskPaths    []string
 	DiskMinFree  float64
@@ -295,6 +297,15 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 				return nil, bad("expected absolute path")
 			}
 			c.StateFile = val
+		case key == "STATE_IN_RAM":
+			switch strings.ToLower(val) {
+			case "yes", "true", "on", "1":
+				c.StateInRAM = true
+			case "no", "false", "off", "0", "":
+				c.StateInRAM = false
+			default:
+				return nil, bad("invalid value (expected yes or no)")
+			}
 		case key == "DISK_PATHS":
 			c.DiskPaths = nil
 			for _, p := range strings.Split(val, ",") {
@@ -423,6 +434,12 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 		if c.ChatID == 0 {
 			return nil, &Error{Key: "TELEGRAM_CHAT_ID", Msg: "required"}
 		}
+	}
+	if c.StateInRAM {
+		if _, set := lines["STATE_FILE"]; set {
+			c.Warnings = append(c.Warnings, "STATE_FILE is ignored while STATE_IN_RAM=yes")
+		}
+		c.DiskState, c.StateFile = c.StateFile, RAMStateFile()
 	}
 	if c.CPUWindow < c.Interval {
 		return nil, &Error{Line: lines["CPU_WINDOW"], Key: "CPU_WINDOW", Msg: "must be at least INTERVAL"}
@@ -588,18 +605,55 @@ func groupMembers() (gid int, members []string, ok bool) {
 	return 0, nil, false
 }
 
-// LenientStateFile returns STATE_FILE from a config that may be invalid elsewhere, or def.
+// OtherStateFile is the state file of the other mode: where the daemon still writes right
+// after the switch, until its next cycle moves the state.
+func (c *Config) OtherStateFile() string {
+	if c.StateInRAM {
+		return c.DiskState
+	}
+	return RAMStateFile()
+}
+
+// RAMStateFile is the state file in RAM mode: the unit's RuntimeDirectory= (systemd
+// exports it as RUNTIME_DIRECTORY to the daemon), else /run/little-watchdog.
+func RAMStateFile() string {
+	dir := "/run/little-watchdog"
+	if v := os.Getenv("RUNTIME_DIRECTORY"); strings.HasPrefix(v, "/") {
+		dir = strings.TrimRight(v, "/")
+	}
+	return dir + "/state.json"
+}
+
+// LenientStateFile returns the state file from a config that may be invalid elsewhere
+// (STATE_FILE, or RAMStateFile() with STATE_IN_RAM=yes), or def.
 func LenientStateFile(path, def string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return def
 	}
+	ram := false
 	for _, l := range strings.Split(string(b), "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(l), "="); ok && strings.TrimSpace(k) == "STATE_FILE" {
-			if v = strings.TrimSpace(v); strings.HasPrefix(v, "/") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), "=")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		switch strings.TrimSpace(k) {
+		case "STATE_FILE":
+			if strings.HasPrefix(v, "/") {
 				def = v
 			}
+		case "STATE_IN_RAM":
+			switch strings.ToLower(v) {
+			case "yes", "true", "on", "1":
+				ram = true
+			case "no", "false", "off", "0", "":
+				ram = false
+			}
 		}
+	}
+	if ram {
+		return RAMStateFile()
 	}
 	return def
 }

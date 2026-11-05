@@ -839,14 +839,15 @@ func (m *model) settingsForm() {
 		return
 	}
 	c := m.snap.cfg
-	keys := []string{"INTERVAL", "FAIL_AFTER", "RECOVER_AFTER", "TIMEOUT"}
+	keys := []string{"INTERVAL", "FAIL_AFTER", "RECOVER_AFTER", "TIMEOUT", "STATE_IN_RAM"}
 	vals := []string{m.raw("INTERVAL", every(c.Interval)), m.raw("FAIL_AFTER", fmt.Sprint(c.FailAfter)),
-		m.raw("RECOVER_AFTER", fmt.Sprint(c.RecoverAfter)), m.raw("TIMEOUT", every(c.Timeout))}
-	spec := kindSpec{labels: []string{"Check every", "Alarm after", "All-clear after", "Timeout per check"}, hints: []string{
+		m.raw("RECOVER_AFTER", fmt.Sprint(c.RecoverAfter)), m.raw("TIMEOUT", every(c.Timeout)), yesNo(c.StateInRAM)}
+	spec := kindSpec{labels: []string{"Check every", "Alarm after", "All-clear after", "Timeout per check", "State in RAM"}, hints: []string{
 		"How often every check runs, for example 60s or 5m. At least 10s, at most the cpu window (" + every(c.CPUWindow) + ", System checks).",
 		"Failed rounds in a row, then a Telegram alarm. 3 = three failed rounds in a row.",
 		"Good rounds in a row after an alarm, then the all-clear. 2 = two good rounds in a row.",
 		"A check that takes longer counts as failed, for example 10s. At most 10m.",
+		"yes = keep the state in RAM, 0 disk writes. no = on disk (default).",
 	}}
 	f := m.newForm("Settings", []kindSpec{spec}, []string{"Save", "Cancel"}, func(f *form) string {
 		tmp := m.file.Clone()
@@ -858,11 +859,36 @@ func (m *model) settingsForm() {
 		if _, err := config.Parse(strings.NewReader(tmp.Text()), false); err != nil {
 			return err.Error()
 		}
-		m.commit(tmp, "Settings saved to "+tmp.Path+".")
+		msg := []string{"Settings saved to " + tmp.Path + "."}
+		if now, _ := config.Parse(strings.NewReader(tmp.Text()), false); now != nil && now.StateInRAM != c.StateInRAM {
+			msg = append(msg, m.ramSwitchText(now.StateInRAM))
+		}
+		m.commit(tmp, msg...)
 		return ""
 	})
 	copy(f.vals, vals)
 	f.note = "New values apply from the next round."
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// ramSwitchText is the one sentence on what the switch costs.
+func (m *model) ramSwitchText(ram bool) string {
+	if !ram {
+		return "The state is back on disk: it survives a reboot, at the price of about 16 writes an hour."
+	}
+	t := "The state now lives in RAM, no disk writes: a restart of the service keeps it, but a reboot loses the history and the \"since\" times, and an alarm may be sent twice."
+	if dir := filepath.Dir(config.RAMStateFile()); !m.daemonDown() {
+		if _, err := os.Stat(dir); err != nil {
+			t += " " + dir + " is missing: the installed unit file has no RuntimeDirectory=, so update the package first."
+		}
+	}
+	return t
 }
 
 // putChanged writes key only if v (trimmed) differs from what the form showed; false if v is empty.
@@ -890,7 +916,7 @@ func (m *model) daemonDown() bool {
 	if c == nil {
 		return false
 	}
-	_, stale := state.Stale(c.StateFile, c.StaleAfter(), time.Now())
+	_, stale := state.Stale(statePath(c), c.StaleAfter(), time.Now())
 	return stale
 }
 
@@ -907,9 +933,10 @@ func (m *model) commit(tmp *config.File, msg ...string) {
 		}
 		return
 	}
+	down := m.daemonDown() // by the state file the daemon writes now, not the one the new config names
 	m.file = tmp
 	m.refresh()
-	if m.daemonDown() {
+	if down {
 		m.logf("Saved. The daemon does not seem to run (no recent heartbeat): start it with sudo systemctl start little-watchdog.")
 		return
 	}

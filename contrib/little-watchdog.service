@@ -24,6 +24,12 @@ User=little-wd
 Group=little-wd
 StateDirectory=little-watchdog
 StateDirectoryMode=0750
+# /run/little-watchdog for STATE_IN_RAM=yes (little-wd, Settings): owned by little-wd, the group
+# reads it like the state directory. Kept across a restart (also the automatic one), gone with a
+# reboot or a stop. Empty and unused while the state is on disk.
+RuntimeDirectory=little-watchdog
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 ProtectSystem=strict
 # read-only, not yes: with yes, a disk check on /home sees an empty tmpfs
 ProtectHome=read-only

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
 ### little-wd
 
 - From 120 columns the menu has the side panel too: every FAIL, then every

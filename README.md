@@ -36,8 +36,8 @@ From 160 columns the screen stays 160 wide and sits in the middle.
 On Debian, Ubuntu or Raspberry Pi OS:
 
 ```sh
-wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.4.0/little-watchdog_0.4.0_$(dpkg --print-architecture).deb
-sudo apt install ./little-watchdog_0.4.0_*.deb
+wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.5.0/little-watchdog_0.5.0_$(dpkg --print-architecture).deb
+sudo apt install ./little-watchdog_0.5.0_*.deb
 ```
 
 Answer `y` when it asks to add you to the group little-wd. Then log out and in
@@ -73,7 +73,7 @@ Not needed for the packages above.
 
 ```sh
 go test -race ./...
-scripts/build.sh 0.4.0      # all packages in ./dist, same bytes every time
+scripts/build.sh 0.5.0      # all packages in ./dist, same bytes every time
 ```
 
 ## Who wrote this

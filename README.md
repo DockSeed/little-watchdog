@@ -33,8 +33,8 @@ check, load, PSI, uptime, and little-wd's own RAM and disk writes.
 On Debian, Ubuntu or Raspberry Pi OS:
 
 ```sh
-wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.3.1/little-watchdog_0.3.1_$(dpkg --print-architecture).deb
-sudo apt install ./little-watchdog_0.3.1_*.deb
+wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.4.0/little-watchdog_0.4.0_$(dpkg --print-architecture).deb
+sudo apt install ./little-watchdog_0.4.0_*.deb
 ```
 
 Then log out and in again (close an SSH session completely, a new shell is not
@@ -69,7 +69,7 @@ Not needed for the packages above.
 
 ```sh
 go test -race ./...
-scripts/build.sh 0.3.1      # all packages in ./dist, same bytes every time
+scripts/build.sh 0.4.0      # all packages in ./dist, same bytes every time
 ```
 
 ## Who wrote this

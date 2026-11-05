@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-05
+
 ### Config
 
 - New key `PING_<NAME>=host`: the host answers ping (ICMP echo over the

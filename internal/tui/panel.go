@@ -21,7 +21,7 @@ import (
 	"github.com/DockSeed/little-watchdog/internal/state"
 )
 
-// panelMin is the terminal width from which the Status screen gets the side panel.
+// panelMin is the terminal width from which the menu and Status get the side panel.
 const panelMin = 120
 
 // sysEvery is how often the panel re-reads /proc: the cadence of loadavg, so an idle
@@ -55,6 +55,107 @@ func (m *model) drawStatusPage(fr *frame, now time.Time) string {
 	pf.ix, pf.iw = sx+1, pw
 	m.drawPanel(&pf, now)
 	return hint
+}
+
+// drawMenuPage is the menu, and on a wide terminal the panel with what needs a look.
+func (m *model) drawMenuPage(fr *frame, now time.Time) string {
+	tw, pw := panelSplit(fr.w, fr.iw)
+	if _, ents := m.statusRows(); pw == 0 || m.snap.cfg == nil || len(ents) == 0 {
+		return m.drawMenu(fr)
+	}
+	tf := *fr
+	tf.iw = tw
+	hint := m.drawMenu(&tf)
+	sx := fr.ix + tw
+	for y := 0; y < fr.ih; y++ {
+		fr.cv.text(sx, fr.iy+y, fr.th.g.v, sBox)
+	}
+	pf := *fr
+	pf.ix, pf.iw = sx+1, pw
+	m.drawLook(&pf, now)
+	return hint
+}
+
+// drawLook lists the failing and unstable checks at the top and this machine at the bottom.
+func (m *model) drawLook(fr *frame, now time.Time) {
+	w := fr.iw - 2 // one cell of air on each side
+	top := m.lookBlock(now, w)
+	sys := m.machineBlock(now, w)
+	if len(top)+1+len(sys) > fr.ih { // the checks come first; the machine block goes as a whole
+		sys = nil
+	}
+	if len(top) > fr.ih && fr.ih > 0 { // still too long: cut the list and say where the rest is
+		top = append(top[:fr.ih-1], prow{{"more in Status", sRowDim}})
+	}
+	for i, r := range top {
+		fr.prow(i, r)
+	}
+	y0 := fr.ih - len(sys)
+	for i, r := range sys {
+		fr.prow(y0+i, r)
+	}
+}
+
+// lookBlock is every FAIL, then every unstable check, each with since when and why;
+// one calm line when there is none.
+func (m *model) lookBlock(now time.Time, w int) (rs []prow) {
+	_, ents := m.statusRows()
+	if m.snap.stale {
+		rs = append(rs, prow{{"Daemon not running, results may be old.", sFail}}, nil)
+	}
+	const ind = 7 // under the name, after "[FAIL] "
+	vw := max(w-ind, 1)
+	sub := func(lines []string, st sty) {
+		for _, l := range lines {
+			rs = append(rs, prow{{strings.Repeat(" ", ind), sBg}, {l, st}})
+		}
+	}
+	var list []state.Entry
+	for _, red := range []bool{true, false} {
+		for _, e := range ents {
+			if red && e.Reported == checks.FAIL || !red && unstable(e) {
+				list = append(list, e)
+			}
+		}
+	}
+	if len(list) == 0 {
+		msg := fmt.Sprintf("All OK, %s.", plural(len(ents), "check", "checks"))
+		if n := len(ents) - m.snap.ok; n > 0 {
+			msg = fmt.Sprintf("%s OK, %d without a result yet.", plural(m.snap.ok, "check", "checks"), n)
+		}
+		return append(rs, prow{{msg, sOK}})
+	}
+	rs = append(rs, prow{{"Needs a look", sCat}})
+	for i, e := range list {
+		if i > 0 {
+			rs = append(rs, nil)
+		}
+		mk, ms := m.markOf(e)
+		rs = append(rs, prow{{fmt.Sprintf("%-*s", ind, mk), ms}, {e.Name, sRowBold}})
+		if e.Reported == checks.FAIL {
+			since := e.DownSince
+			if since.IsZero() {
+				since = e.Since
+			}
+			st := fmt.Sprintf("FAIL since %s (%s)", clock(since, now), m.tries(e))
+			if e.OKs > 0 {
+				st = fmt.Sprintf("FAIL since %s, %s", clock(since, now), backText(e, m.snap.cfg.RecoverAfter))
+			}
+			sub(wrapAll(st, vw, 2), sBg)
+		} else if !e.DownSince.IsZero() {
+			sub(wrapAll(fmt.Sprintf("failing since %s (%s), not reported yet", clock(e.DownSince, now), m.tries(e)), vw, 2), sBg)
+		} else {
+			sub(wrapAll(fmt.Sprintf("last check failed (%s), not reported yet", m.tries(e)), vw, 2), sBg)
+		}
+		value := e.Value
+		if e.Detail != "" && unstable(e) {
+			value = e.Detail
+		}
+		if value != "" {
+			sub(wrapAll(value, vw, 2), sRowDim)
+		}
+	}
+	return rs
 }
 
 // prow is one panel line: runs of text in their styles.
@@ -288,7 +389,8 @@ func procErr(err error) string {
 	return "not readable"
 }
 
-// machineBlock is the panel's bottom: load, pressure and uptime from /proc, little-wd's own cost.
+// machineBlock is the panel's bottom: load, pressure and uptime from /proc.
+// little-wd's own cost is in the menu's footer line, not here.
 func (m *model) machineBlock(now time.Time, w int) (rs []prow) {
 	s := m.readSys(now)
 	const lw = 16
@@ -320,14 +422,6 @@ func (m *model) machineBlock(now time.Time, w int) (rs []prow) {
 		row("up since boot", s.upErr, sWarn)
 	} else {
 		row("up since boot", upText2(s.up), sBg)
-	}
-	switch f := m.snap.foot; {
-	case f == nil:
-		row("little-wd", "no footprint in the state file yet", sRowDim)
-	case m.snap.stale:
-		row("little-wd", "daemon not running", sFail)
-	default:
-		row("little-wd", ramText(f)+" RAM, "+writesText(f, "write", "writes"), sBg)
 	}
 	return rs
 }

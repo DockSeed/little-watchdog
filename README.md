@@ -25,8 +25,11 @@ Unofficial; not affiliated with Telegram or Healthchecks.io.
  cpu: OK since 06:58. No Telegram message yet.
 ```
 
-On a terminal of 120 columns or more, Status gets a side panel: the selected
-check, load, PSI, uptime, and little-wd's own RAM and disk writes.
+On a terminal of 120 columns or more the menu and Status get a side panel:
+in the menu every failing or unstable check with since when and why (or one
+line that all is OK), in Status the selected check; below it load, PSI and
+uptime. little-wd's own RAM and disk writes stand in the menu's bottom line.
+From 160 columns the screen stays 160 wide and sits in the middle.
 
 ## Install
 

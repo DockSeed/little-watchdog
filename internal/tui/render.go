@@ -400,8 +400,13 @@ type frame struct {
 	ih         int
 }
 
+// maxWidth is where the content ends on a wide terminal; beyond it the screen is centred.
+// 160 is the smallest width that leaves 120 to 159 columns fully used.
+const maxWidth = 160
+
 func (m *model) render(out io.Writer) {
-	w, h := m.size()
+	termW, h := m.size()
+	w := min(termW, maxWidth)
 	cv := newCanvas(w, h)
 	fr := &frame{cv: cv, th: m.th, w: cv.w, h: cv.h, bw: cv.w, bh: max(cv.h-5, 3), y: 1}
 	fr.ix, fr.iy, fr.iw, fr.ih = 1, fr.y+1, fr.bw-2, fr.bh-2
@@ -412,7 +417,7 @@ func (m *model) render(out io.Writer) {
 	fr.frameBox(map[screen]string{scMenu: "Menu", scStatus: "Status", scRemove: "Remove check", scSys: "System checks", scBlank: m.flow}[m.scr])
 	switch m.scr {
 	case scMenu:
-		hint, keys = m.drawMenu(fr), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
+		hint, keys = m.drawMenuPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "open"}, {"Q", "quit"}, {"?", "help"}}
 	case scStatus:
 		crumb = "Status"
 		hint, keys = m.drawStatusPage(fr, now), []kv{{fr.th.g.updown, "move"}, {"Enter", "details"}, {"A", "add"}, {"Esc", "menu"}, {"?", "help"}}
@@ -452,6 +457,9 @@ func (m *model) render(out io.Writer) {
 		hint = strings.ToUpper(needGroup()[:1]) + needGroup()[1:] + "."
 	}
 	m.drawChrome(fr, crumb, hint, keys, now)
+	if termW > w {
+		cv = cv.centred(termW)
+	}
 	if f := cv.emit(m.th); f != m.last {
 		m.last = f
 		io.WriteString(out, f)
@@ -1193,7 +1201,7 @@ func (m *model) drawHelp(fr *frame) {
 	}
 	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only
 		rows = append(rows, text...)
-		pl := wrapRows("Status at 120+ columns: the right panel shows the selected check and this machine.", 62, sDlg)
+		pl := wrapRows("From 120 columns a panel on the right shows this machine, and what needs a look (menu) or the selected check (Status).", 62, sDlg)
 		if _, pw := panelSplit(fr.w, fr.iw); pw > 0 && len(rows)+len(pl)+4 <= fr.ih { // only where the panel exists
 			rows = append(rows, pl...)
 		}

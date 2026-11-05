@@ -114,6 +114,7 @@ func groupCfg(t *testing.T) string {
 func TestGroupsWithThePanel(t *testing.T) {
 	r := start(t, &App{Path: groupCfg(t), Size: func() (int, int) { return 130, 30 }, Proc: fakeProc(t, true)})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("load 1/5/15 min")
 	rs := checkSize(t, r.frame(), 130, 30)
 	tw, _ := panelSplit(130, 128)

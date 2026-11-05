@@ -72,6 +72,7 @@ func col(row string, x int) string { return string([]rune(row)[x]) }
 func TestStatusPanel130(t *testing.T) {
 	r := start(t, &App{Path: footFixture(t), Size: func() (int, int) { return 130, 30 }, Proc: fakeProc(t, true)})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("load 1/5/15 min")
 	f := r.frame()
 	rs := checkSize(t, f, 130, 30)
@@ -92,8 +93,8 @@ func TestStatusPanel130(t *testing.T) {
 	host, _ := os.Hostname()
 	has(t, f, host+" right now", "load 1/5/15 min 0.52 0.40 0.31 on "+plural(runtime.NumCPU(), "CPU", "CPUs"),
 		"Stalled (PSI)   10s    60s    5m", "  CPU           1.25%  0.50%  0.10%", "  RAM           0.00%  0.00%  0.00%",
-		"  disk          4.00%  2.00%  1.00%", "up since boot   3 d 4 h", "little-wd       7 MB RAM, 6.0 writes/h")
-	if !strings.Contains(rs[24], "little-wd       7 MB") { // anchored at the bottom of the panel
+		"  disk          4.00%  2.00%  1.00%", "up since boot   3 d 4 h")
+	if !strings.Contains(rs[24], "up since boot") { // anchored at the bottom of the panel
 		t.Fatalf("machine block not at the bottom:\n%s", f)
 	}
 	// cursor moves change block 1, the table keeps its cursor bar
@@ -108,7 +109,7 @@ func TestStatusPanel130(t *testing.T) {
 	has(t, r.frame(), "Target    h:53", "Telegram  no message yet")
 	r.send("?")
 	r.wait("[ Close ]")
-	has(t, r.frame(), "Status at 120+ columns: the right panel shows the selected", "check and this machine.")
+	has(t, r.frame(), "From 120 columns a panel on the right shows this machine, and", "what needs a look (menu) or the selected check (Status).")
 	r.send("\x03")
 	r.finish()
 }
@@ -116,6 +117,7 @@ func TestStatusPanel130(t *testing.T) {
 func TestStatusPanel160(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 160, 40 }, Proc: fakeProc(t, true)})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("load 1/5/15 min")
 	f := r.frame()
 	rs := checkSize(t, f, 160, 40)
@@ -124,7 +126,8 @@ func TestStatusPanel160(t *testing.T) {
 		t.Fatalf("%q", rs[10])
 	}
 	has(t, rs[2], "Type", "Checked")
-	has(t, f, "little-wd       no footprint in the state file yet", "1.25%", "Type      cpu")
+	has(t, f, "1.25%", "Type      cpu")
+	lacks(t, f, "little-wd       ", "no footprint")
 	r.send("\x03")
 	r.finish()
 }
@@ -135,6 +138,7 @@ func TestStatusPanelNoPSIAndErrors(t *testing.T) {
 	os.WriteFile(filepath.Join(proc, "uptime"), []byte("garbage\n"), 0o600)
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 160, 40 }, Proc: proc})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("Stalled (PSI)")
 	has(t, r.frame(), "Stalled (PSI)   /proc limited", "load 1/5/15 min not found", "up since boot   unexpected format")
 	lacks(t, r.frame(), "10s    60s")
@@ -143,6 +147,7 @@ func TestStatusPanelNoPSIAndErrors(t *testing.T) {
 	os.WriteFile(filepath.Join(proc, "loadavg"), []byte("0.52 0.40 0.31 1/234 5678\n"), 0o600)
 	r = start(t, &App{Path: fixture(t), Size: func() (int, int) { return 160, 40 }, Proc: proc})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("Stalled (PSI)   no PSI (kernel or psi=0)")
 	r.send("\x03")
 	r.finish()
@@ -154,7 +159,7 @@ func TestStatusPanelLow(t *testing.T) {
 		h       int
 		machine bool
 		result  string
-	}{{24, true, "connection refused"}, {20, false, "connection refused"}, {23, true, "connect:~"}} {
+	}{{24, true, "connection refused"}, {19, false, "connection refused"}, {22, true, "connect:~"}} {
 		r := start(t, &App{Path: footFixture(t), Size: func() (int, int) { return 130, c.h }, Proc: fakeProc(t, true)})
 		r.send("\rjjjjjj")
 		r.wait("Target    http://192.0.2.12:2283/")
@@ -163,11 +168,11 @@ func TestStatusPanelLow(t *testing.T) {
 		has(t, f, "Telegram  last message", c.result)
 		if c.machine {
 			has(t, f, "right now", "load 1/5/15 min", "Stalled (PSI)", "  disk ", "up since boot")
-			if !strings.Contains(rs[c.h-6], "little-wd       7 MB RAM") {
+			if !strings.Contains(rs[c.h-6], "up since boot") {
 				t.Fatalf("%d rows: last line of the machine block missing:\n%s", c.h, f)
 			}
 		} else {
-			lacks(t, f, "right now", "load 1/5/15", "Stalled", "little-wd       7 MB")
+			lacks(t, f, "right now", "load 1/5/15", "Stalled", "up since boot")
 		}
 		r.send("\x03")
 		r.finish()
@@ -181,6 +186,7 @@ func TestStatusPanelIdleRedraws(t *testing.T) {
 	proc := fakeProc(t, true)
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 130, 30 }, Proc: proc})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("load 1/5/15 min")
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -215,6 +221,7 @@ func TestStatusPanelASCII(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 130, 30 }, Proc: fakeProc(t, true),
 		Getenv: env("TERM", "linux", "LANG", "C")})
 	r.send("\r")
+	r.wait("Last result")
 	r.wait("load 1/5/15 min")
 	f := r.frame()
 	rs := checkSize(t, f, 130, 30)
@@ -291,5 +298,42 @@ func TestReadSysThrottled(t *testing.T) {
 		if got := upText2(d); got != want {
 			t.Errorf("upText2(%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// little-wd's own cost sits in the menu footer only, not in the panel's machine block.
+func TestFootprintInFooterNotPanel(t *testing.T) {
+	r := start(t, &App{Path: footFixture(t), Size: func() (int, int) { return 130, 30 }, Proc: fakeProc(t, true)})
+	r.wait("little-wd: 7 MB RAM")
+	has(t, rows(r.frame())[24], "little-wd: 7 MB RAM · ", "6.0 disk writes/h")
+	r.send("\r")
+	r.wait("Type      cpu")
+	f := r.frame()
+	has(t, f, "up since boot")
+	lacks(t, f, "little-wd       ", "7 MB RAM", "writes/h")
+	r.send("\x03")
+	r.finish()
+}
+
+// From maxWidth on the screen ends at a fixed width and sits in the middle.
+func TestCentredWide(t *testing.T) {
+	for _, s := range []string{"", "\r"} { // menu, Status
+		r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 200, 40 }, Proc: fakeProc(t, true)})
+		r.send(s)
+		r.wait("right now")
+		rs := checkSize(t, r.frame(), 200, 40)
+		pad := strings.Repeat(" ", 20)
+		for _, y := range []int{0, 1, 10, 34} {
+			if !strings.HasPrefix(rs[y], pad) || !strings.HasSuffix(rs[y], pad) {
+				t.Fatalf("row %d not centred: %q", y, rs[y])
+			}
+		}
+		if col(rs[1], 20) != "╭" || col(rs[1], 179) != "╮" || col(rs[35], 20) != "╰" {
+			t.Fatalf("frame not at 20..179:\n%s", r.frame())
+		}
+		has(t, rs[0], pad+" little-wd")
+		has(t, rs[0], "1 FAIL "+pad)
+		r.send("\x03")
+		r.finish()
 	}
 }

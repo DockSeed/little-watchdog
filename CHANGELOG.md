@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### little-wd
+
+- From 120 columns the menu has the side panel too: every FAIL, then every
+  unstable or recovering check, each with since when and the last result;
+  when nothing needs a look, one line "All OK, N checks.". Below it this
+  machine, as in Status. A long list on a low terminal drops the machine
+  part first, then ends with "more in Status".
+- The "<host> right now" panel no longer has the little-wd line (RAM,
+  writes/h); it is in the menu's bottom line already.
+- From 160 columns the screen stays 160 wide and sits in the middle, so 120
+  to 159 columns are used in full. 80×24 is unchanged.
+
 ## [0.4.0] - 2026-11-05
 
 ### Config

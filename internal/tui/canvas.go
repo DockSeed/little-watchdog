@@ -40,6 +40,16 @@ func (cv *canvas) text(x, y int, s string, st sty) int {
 	return x
 }
 
+// centred returns the grid in the middle of a wider one of w cells.
+func (cv *canvas) centred(w int) *canvas {
+	out := newCanvas(w, cv.h)
+	ox := (out.w - cv.w) / 2
+	for y := 0; y < cv.h; y++ {
+		copy(out.c[y*out.w+ox:], cv.c[y*cv.w:(y+1)*cv.w])
+	}
+	return out
+}
+
 func (cv *canvas) fill(x, y, w, h int, st sty) {
 	for j := y; j < y+h; j++ {
 		for i := x; i < x+w; i++ {

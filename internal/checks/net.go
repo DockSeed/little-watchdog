@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -136,21 +137,52 @@ func internalAddr(a netip.Addr) bool {
 	return internalAddr(netip.AddrFrom4(v4))
 }
 
+// classTTL is how long the answer of internalHost is kept per name; maxClasses bounds the memo.
+const (
+	classTTL   = 5 * time.Minute
+	maxClasses = 1024
+)
+
+type classEntry struct {
+	internal bool
+	until    time.Time
+}
+
+// classes remembers internalHost per name, so one check does not ask the resolver again in every
+// round and at every redirect. It only decides whether the guard applies; the guard itself looks
+// at the address each connect is about to use, so a stale entry cannot let a connection through.
+var classes = struct {
+	sync.Mutex
+	m map[string]classEntry
+}{m: map[string]classEntry{}}
+
 // internalHost: host is, or resolves to, an internal address (any one of them counts).
 func internalHost(ctx context.Context, host string) bool {
 	if ip := net.ParseIP(host); ip != nil {
 		return internalIP(ip)
 	}
+	key := strings.ToLower(host)
+	classes.Lock()
+	e, ok := classes.m[key]
+	classes.Unlock()
+	if ok && time.Now().Before(e.until) {
+		return e.internal
+	}
 	ips, err := lookupIP(ctx, host)
 	if err != nil {
 		return false
 	}
+	internal := false
 	for _, ip := range ips {
-		if internalIP(ip) {
-			return true
-		}
+		internal = internal || internalIP(ip)
 	}
-	return false
+	classes.Lock()
+	if len(classes.m) >= maxClasses {
+		clear(classes.m)
+	}
+	classes.m[key] = classEntry{internal, time.Now().Add(classTTL)}
+	classes.Unlock()
+	return internal
 }
 
 // errInternalAddr: a check that started at a public address was about to connect to an internal
@@ -216,6 +248,7 @@ func (h *HTTP) Run(ctx context.Context) Result {
 	// one budget for HEAD and the GET fallback together, not one each
 	ctx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
+	ctx = h.markOrigin(ctx)
 	if h.mode != "" {
 		return h.runMode(ctx)
 	}
@@ -233,6 +266,9 @@ func (h *HTTP) Run(ctx context.Context) Result {
 	if err != nil {
 		if errors.Is(err, errBadRequest) {
 			return Result{Status: FAIL, Detail: "the request could not be built"}
+		}
+		if r, ok := refusedResult(err); ok {
+			return r
 		}
 		return netFail(err, h.timeout, h.url, time.Since(start))
 	}
@@ -285,6 +321,22 @@ func (h *HTTP) send(ctx context.Context, c *http.Client, method, url string, con
 	return c.Do(req)
 }
 
+// refusedResult is the FAIL for a connect the guard refused.
+func refusedResult(err error) (Result, bool) {
+	if !errors.Is(err, errInternalAddr) {
+		return Result{}, false
+	}
+	return Result{Status: FAIL, Detail: errInternalAddr.Error(), Value: "internal address refused"}, true
+}
+
+// markOrigin tells the dialer's guard that this run started at a public address (every mode).
+func (h *HTTP) markOrigin(ctx context.Context) context.Context {
+	if u, err := url.Parse(h.url); err == nil && !internalHost(ctx, u.Hostname()) {
+		return context.WithValue(ctx, publicOrigin{}, true)
+	}
+	return ctx
+}
+
 // runMode is Run for lenient and strict: redirects followed, and the status rule of the mode.
 func (h *HTTP) runMode(ctx context.Context) Result {
 	method := http.MethodGet
@@ -311,9 +363,6 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 			resp, err = h.send(ctx, c, method, url, &connected)
 		}
 		return resp, connected, err
-	}
-	if u, err := url.Parse(h.url); err == nil && !internalHost(ctx, u.Hostname()) {
-		ctx = context.WithValue(ctx, publicOrigin{}, true)
 	}
 	first, firstURL := h.client, h.url
 	var second *http.Client
@@ -353,8 +402,8 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 		if errors.Is(err, errInternalRedirect) {
 			return Result{Status: FAIL, Detail: errInternalRedirect.Error(), Value: "redirect refused"}
 		}
-		if errors.Is(err, errInternalAddr) {
-			return Result{Status: FAIL, Detail: errInternalAddr.Error(), Value: "internal address refused"}
+		if r, ok := refusedResult(err); ok {
+			return r
 		}
 		if h.mode == config.ModeLenient && notWeb(ctx, err, connected) {
 			return Result{Status: OK, Odd: true, Value: "port open, no website"}

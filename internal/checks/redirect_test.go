@@ -22,7 +22,8 @@ import (
 // fakeDNS: public.test is a public address, lan.test a private one; the rest does not resolve.
 func fakeDNS(t *testing.T) {
 	old := lookupIP
-	t.Cleanup(func() { lookupIP = old })
+	forgetClasses()
+	t.Cleanup(func() { lookupIP = old; forgetClasses() })
 	lookupIP = func(_ context.Context, host string) ([]net.IP, error) {
 		switch host {
 		case "public.test":
@@ -124,11 +125,19 @@ func TestInsecureClientDoesNotFollowToAnotherHost(t *testing.T) {
 	}
 }
 
+// forgetClasses empties the memo of internalHost, so a test sees its own fake DNS.
+func forgetClasses() {
+	classes.Lock()
+	clear(classes.m)
+	classes.Unlock()
+}
+
 // publicLocalhost makes the origin check see localhost as a public name; the dialer still
 // resolves it the normal way, to loopback. allow lists the local servers a test may reach.
 func publicLocalhost(t *testing.T, allow ...*httptest.Server) {
 	oldL, oldR := lookupIP, refused
-	t.Cleanup(func() { lookupIP, refused = oldL, oldR })
+	forgetClasses()
+	t.Cleanup(func() { lookupIP, refused = oldL, oldR; forgetClasses() })
 	lookupIP = func(_ context.Context, h string) ([]net.IP, error) {
 		if h == "localhost" {
 			return []net.IP{net.ParseIP("203.0.113.9")}, nil
@@ -150,16 +159,41 @@ func publicLocalhost(t *testing.T, allow ...*httptest.Server) {
 func TestDNSRebindingIsRefused(t *testing.T) {
 	target, hits := counter(t, false)
 	publicLocalhost(t)
-	r := NewHTTP("x", "http://localhost:"+srvPort(target)+"/", "", 2*time.Second).SetMode("", config.ModeLenient).Run(context.Background())
-	if r.Status != FAIL || r.Detail != errInternalAddr.Error() {
-		t.Fatalf("first hop: %+v", r)
+	for _, mode := range []string{"", config.ModeLenient, config.ModeStrict} { // "" = a 0.3 line without mode=
+		h := NewHTTP("x", "http://localhost:"+srvPort(target)+"/", "", 2*time.Second).SetMode("", mode)
+		if r := h.Run(context.Background()); r.Status != FAIL || r.Detail != errInternalAddr.Error() {
+			t.Fatalf("first hop, mode %q: %+v", mode, r)
+		}
 	}
 	// after a redirect on the same name: CheckRedirect lets it pass, the dialer must not
 	pub := redirector(t, "http://localhost:"+srvPort(target)+"/x")
 	publicLocalhost(t, pub)
-	r = NewHTTP("x", "http://localhost:"+srvPort(pub)+"/", "", 2*time.Second).SetMode("", config.ModeStrict).Run(context.Background())
+	r := NewHTTP("x", "http://localhost:"+srvPort(pub)+"/", "", 2*time.Second).SetMode("", config.ModeStrict).Run(context.Background())
 	if r.Status != FAIL || r.Detail != errInternalAddr.Error() {
 		t.Fatalf("after a redirect: %+v", r)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("the internal target was asked %d times", hits.Load())
+	}
+}
+
+// Names are looked up once per few minutes, not twice per run and again at every redirect, and
+// the guard keeps working on the remembered answer: a name that turns internal is still refused.
+func TestNameClassIsRemembered(t *testing.T) {
+	target, hits := counter(t, false)
+	pub := redirector(t, "http://localhost:"+srvPort(target)+"/x")
+	publicLocalhost(t, pub)
+	var lookups atomic.Int32
+	inner := lookupIP
+	lookupIP = func(ctx context.Context, h string) ([]net.IP, error) { lookups.Add(1); return inner(ctx, h) }
+	h := NewHTTP("x", "http://localhost:"+srvPort(pub)+"/", "", 2*time.Second).SetMode("", config.ModeStrict)
+	for i := 0; i < 3; i++ {
+		if r := h.Run(context.Background()); r.Status != FAIL || r.Detail != errInternalAddr.Error() {
+			t.Fatalf("run %d: %+v", i, r)
+		}
+	}
+	if n := lookups.Load(); n > 1 {
+		t.Fatalf("%d lookups for one name in 3 runs", n)
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("the internal target was asked %d times", hits.Load())

@@ -40,7 +40,7 @@ if [ "$dry" = 0 ]; then
 		exit 1
 	}
 	[ -d /run/systemd/system ] || {
-		echo "This needs systemd running (no /run/systemd/system). See the README for a manual setup." >&2
+		echo "little-watchdog needs systemd, and this system does not run it (no /run/systemd/system)." >&2
 		exit 1
 	}
 fi

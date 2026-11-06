@@ -10,7 +10,7 @@ back.
   address, done. No web interface, no open port.
 - **Watches** pings, web pages, ports, and its own machine (disk, memory,
   temperature, CPU).
-- **Tells you** on Telegram. A dead-man's-switch (Healthchecks.io) tells you
+- **Tells you** on Telegram. A dead-man's switch (Healthchecks.io) tells you
   when the watchdog itself stops.
 - **Small.** One static binary, about 10 MB of RAM (measured with a handful of
   checks, 15 MB with 40). Linux with systemd.
@@ -33,13 +33,13 @@ sudo apt install ./little-watchdog_0.6.0_*.deb
 3. Run `little-wd`. It greets you, asks for a first address, then sets up
    Telegram.
 
-The full guide, with checking the download: [docs/setup.md](docs/setup.md).
+Full guide, with verifying the download: [docs/setup.md](docs/setup.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| [Setup guide](docs/setup.md) | Install, first check, Telegram, dead-man's-switch, several machines, update. |
+| [Setup guide](docs/setup.md) | Install, first check, Telegram, dead-man's switch, several machines, update. |
 | [Using little-wd](docs/screens.md) | The screens, keys and screen sizes. |
 | [Configuration](docs/config.md) | Every config key, check options, limits, disk writes, the service. |
 | [Security](SECURITY.md) | What is protected, what is not, how to report a problem. |
@@ -52,12 +52,12 @@ The full guide, with checking the download: [docs/setup.md](docs/setup.md).
 | `little-wd` | Full-screen setup and status (needs a terminal). |
 | `little-wd status` | Prints the last results as a table. |
 | `little-wd check` | Runs all checks once, prints the results, sends nothing. |
-| `little-wd run` | The daemon; the systemd service starts it. |
+| `little-wd run` | Runs the watchdog; the systemd service does this. |
 | `little-wd version` | Prints the version. |
 
-All take `-config PATH`. Default: `/etc/little-watchdog/little-watchdog.env`,
-or `$LITTLE_WATCHDOG_CONFIG`. `little-wd COMMAND -h` helps with one command;
-`man little-wd` lists files, environment and exit codes.
+All take `-config PATH`. Default: `$LITTLE_WATCHDOG_CONFIG`, else
+`/etc/little-watchdog/little-watchdog.env`. `little-wd COMMAND -h` shows the
+help for one command; `man little-wd` lists files, environment and exit codes.
 
 ## Build from source
 

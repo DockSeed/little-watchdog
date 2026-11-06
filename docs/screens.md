@@ -1,8 +1,8 @@
 # Using little-wd
 
 `little-wd` without a command opens the full-screen program. It shows what the
-watchdog sees and changes its config. The watchdog itself runs as a service in
-the background; quitting `little-wd` does not stop it.
+watchdog sees and changes its config. The watchdog itself runs as a service;
+quitting `little-wd` does not stop it.
 
 The pictures show a demo homelab, taken from little-wd 0.6.0.
 
@@ -16,7 +16,7 @@ The pictures show a demo homelab, taken from little-wd 0.6.0.
 | System checks | limits for this machine: CPU, memory, disk, temperature | how many are on |
 | Settings | check interval, alarm and all-clear rounds, timeout, state in RAM | the current values |
 | Telegram | pair a bot | linked, last message |
-| Dead-man switch | Healthchecks ping URL and interval | last ping |
+| Dead-man's switch | Healthchecks ping URL and interval | last ping |
 | Quit | leave `little-wd` | |
 
 The bottom line of the menu shows what little-wd itself costs: RAM, CPU and
@@ -35,7 +35,7 @@ without port or path). A host with a single check gets no extra line.
 | State | `[OK]`, `[FAIL]`; `[2/3]` = 2 of 3 tries failed, no alarm yet; `[?]` = no result yet |
 | Last result | what was checked, then the time: `web 200, 41 ms`, `port open, 1 ms`, `ping answers, 3 ms` |
 | Checked | time of the last result |
-| Since | when this state began (an OK at most since the daemon start) |
+| Since | when this state began (an OK at most since the service start) |
 
 A yellow `[OK]` answers, but not as the address promised: `port open, no
 website`. It sends no alarm. After a FAIL, `back 1/2` counts the good tries
@@ -49,14 +49,14 @@ until the all-clear.
 
 ![Details of the failing check Photos: state, last result, the last 30 minutes and what to do](images/details.png)
 
-- **State**, **Last** result and **Target**.
+- **State**, **Last** result and **Address**.
 - **The last 30 minutes**: every measurement as a curve, failures in red, and
   one line on what came before the last failed try.
 - **The last 24 hours**: how often it answered and how fast. With many checks
   the history is shorter, see [Limits](config.md#limits).
 - **What to do**: a short hint for this kind of error, only while the check
   fails. Telegram does not repeat it.
-- When the last Telegram message for this check went out.
+- When the last Telegram message for this check was sent.
 
 On a low terminal the curves are left out first.
 
@@ -64,9 +64,9 @@ On a low terminal the curves are left out first.
 
 ![The Add check form](images/add-check.png)
 
-Type an address, optionally a name, press Enter. What the address means is in
-the [setup guide](setup.md#2-first-check). Enter saves at once, checks once and
-shows the result; the form is then ready for the next address. Esc leaves.
+Type an address, optionally a name, press Enter. How each address is watched:
+[setup guide](setup.md#2-first-check). Enter saves at once, checks once and
+shows the result; the form then waits for the next address. Esc leaves.
 
 ## Wide terminals
 
@@ -117,6 +117,6 @@ Esc in the menu asks before quitting.
 |---|---|---|
 | explore mode, no changes | your login cannot read the config | join the group `little-wd`, log in again |
 | read-only | the config directory is not writable | the same |
-| daemon not running | no recent heartbeat from the service | `sudo systemctl start little-watchdog` |
+| service not running | no recent heartbeat from the service | `sudo systemctl start little-watchdog` |
 
 `little-wd` shows the exact command where it is needed.

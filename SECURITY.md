@@ -23,7 +23,7 @@ Redirects are followed only by lenient and strict web checks, at most 5.
 - A `localhost` check proves that something listens, not what.
 - Anyone in your chat can ask for `/status`.
 - Telegram and the ping host see your messages and pings.
-- Without a dead-man's-switch nobody notices if the machine dies.
+- Without a dead-man's switch nobody notices if the machine dies.
 
 If the token leaks, revoke it with @BotFather.
 

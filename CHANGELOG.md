@@ -9,13 +9,12 @@
 
 ### Fixed
 
-- The heartbeat (`state.json.alive`) and the fine history (`state.json.fine`) are written to
-  the unit's runtime directory (RAM) in either mode, not to the disk: the heartbeat was a disk
-  write every round that "writes/h" did not count, the fine history a second file with its own
-  fsync in every write round. Without a usable runtime directory they stay next to the state
-  file. Until the service is restarted on the new version, an older `little-wd` UI reads the
-  disk place and reports "daemon not running".
-- The daemon writes below `/run/little-watchdog` only when systemd gave it a
+- The heartbeat (`state.json.alive`) and the fine history (`state.json.fine`) go to the unit's
+  runtime directory (RAM) in either mode, not to disk. The heartbeat was a disk write every
+  round that "writes/h" did not count, the fine history a second fsync in every write round.
+  Without a usable runtime directory they stay next to the state file. Until the service runs
+  the new version, an older `little-wd` reports "daemon not running".
+- The service writes below `/run/little-watchdog` only when systemd gave it a
   `RUNTIME_DIRECTORY`. A second instance (another unit, a test run) used to write into the
   directory of the installed service, and systemd removed it when that instance stopped. With
   `STATE_IN_RAM=yes` and no `RUNTIME_DIRECTORY` the state stays on disk, with a warning.
@@ -27,6 +26,7 @@
 - Text from other machines loses the characters that reorder or hide text: bidirectional marks
   and overrides, zero-width characters, line and paragraph separators, byte order mark.
 - Tests no longer read or write the host's `/run/little-watchdog`.
+- Settings said the state on disk costs about 16 disk writes an hour; it is about 6.
 
 ### Changed
 
@@ -37,6 +37,10 @@
   instead of ending with the service "failed" for good. Needs systemd 254 for the growing
   pause; older versions keep 10 s.
 - `little-watchdog.env.bak` is reset by tmpfiles.d like the config file.
+- Wording: the background program is "the service" everywhere ("service not running"), the
+  menu entry is "Dead-man's switch", the details say "Address" instead of "Target", and the
+  Add check button reads "Save and check", as it saves first. Alarms read "has been down
+  since" and "has not answered since".
 
 ## [0.6.0] - 2026-11-05
 

@@ -86,14 +86,14 @@ before 0.4.0 skip `PING_` lines with a warning.
 |---|---|
 | Settings | `INTERVAL`, `FAIL_AFTER`, `RECOVER_AFTER`, `TIMEOUT`, `STATE_IN_RAM` |
 | Telegram | `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` |
-| Dead-man switch | `DEADMAN_URL`, `DEADMAN_EVERY` |
+| Dead-man's switch | `DEADMAN_URL`, `DEADMAN_EVERY` |
 | System checks | the limits (and on or off), `CPU_WINDOW`, `TEMP_SENSOR` |
 | Add check, Remove check | `HTTP_`, `PING_`; Remove also drops `TCP_`, `HOST_` and a disk |
 | File only | `STATE_FILE`, `TELEGRAM_API_URL`, `TCP_`, `HOST_`, more disks in `DISK_PATHS` |
 
 ## Disk writes
 
-SD cards wear out, so the daemon writes little to disk. Only the state file
+SD cards wear out, so the service writes little to disk. Only the state file
 `state.json` goes to disk:
 
 | Situation | Writes of `state.json` |
@@ -125,12 +125,12 @@ SD cards wear out, so the daemon writes little to disk. Only the state file
   the directory with `RuntimeDirectory=` (owner `little-wd`, mode 0750, so the
   group `little-wd` reads it).
 - It needs `RUNTIME_DIRECTORY` from the unit. Without it the state stays on
-  disk and the daemon logs a warning.
+  disk and the service logs a warning.
 - A restart of the service keeps it.
 - A reboot or a stop loses the history, the "since" times and what was already
   announced. An alarm that was sent before may be sent once more.
 - The bottom line of `little-wd` then reads "state in RAM, no disk writes".
-- Switching while the daemon runs moves the state at the next reload and
+- Switching while the service runs moves the state at the next reload and
   removes the old copy.
 - A unit file from before this option has no `RuntimeDirectory=`: update the
   package or the unit first, otherwise the state cannot be written.
@@ -148,7 +148,7 @@ SD cards wear out, so the daemon writes little to disk. Only the state file
 | State | `/var/lib/little-watchdog` (`StateDirectory=`) | `little-wd`, 0750 |
 | State in RAM | `/run/little-watchdog` (`RuntimeDirectory=`) | `little-wd`, 0750 |
 
-- The config holds the bot token. The daemon log, `little-wd status` and
+- The config holds the bot token. The service log, `little-wd status` and
   `little-wd check` warn when others, or a group other than `little-wd`, can
   read it.
 - Members of the group `little-wd` read the token and change the checks. To

@@ -197,17 +197,24 @@ func TestHistSizeCap(t *testing.T) {
 	if len(b) > 16<<10 || len(b) < 10000 {
 		t.Fatalf("%d bytes", len(b))
 	}
-	// 200 checks: the oldest buckets go, the size stays
-	e = NewEngine(2, 1)
-	for b := 0; b < histBuckets; b++ {
-		for i := 0; i < 200; i++ {
-			e.Observe(fake{fmt.Sprintf("check_%03d", i), "tcp"}, took(3), t0.Add(time.Duration(b)*histStep))
+	// more checks: the oldest buckets go, the size stays; far more: no history at all
+	for _, n := range []int{40, 100, 200, 400, 1000} {
+		e = NewEngine(2, 1)
+		for b := 0; b < histBuckets; b++ {
+			for i := 0; i < n; i++ {
+				e.Observe(fake{fmt.Sprintf("check_%03d", i), "tcp"}, took(3), t0.Add(time.Duration(b)*histStep))
+			}
 		}
-	}
-	h := e.hist.encode()
-	b, _ = json.Marshal(h)
-	if len(b) > 16<<10 || len(h.Checks["check_000"]) == 0 || len(h.Checks["check_000"]) >= 4*histBuckets {
-		t.Fatalf("%d bytes, %d chars", len(b), len(h.Checks["check_000"]))
+		h := e.hist.encode()
+		b, _ = json.Marshal(h)
+		hours := 0.0
+		if h != nil {
+			hours = float64(len(h.Checks["check_000"])/4) * histStep.Hours()
+		}
+		t.Logf("%4d checks: %5.1f h of history, state part %d bytes", n, hours, len(b))
+		if len(b) > 16<<10 || (n < 1000) != (h != nil) || (n > 20 && hours >= 24) {
+			t.Fatalf("%d checks: %d bytes, %.1f h", n, len(b), hours)
+		}
 	}
 }
 

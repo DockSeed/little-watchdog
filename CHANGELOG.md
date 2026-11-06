@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The heartbeat (`state.json.alive`) and the fine history (`state.json.fine`) are written to
+  the unit's runtime directory (RAM) in either mode, not to the disk: the heartbeat was a disk
+  write every round that "writes/h" did not count, the fine history a second file with its own
+  fsync in every write round. Without a usable runtime directory they stay next to the state
+  file. Until the service is restarted on the new version, an older `little-wd` UI reads the
+  disk place and reports "daemon not running".
+- The daemon writes below `/run/little-watchdog` only when systemd gave it a
+  `RUNTIME_DIRECTORY`. A second instance (another unit, a test run) used to write into the
+  directory of the installed service, and systemd removed it when that instance stopped. With
+  `STATE_IN_RAM=yes` and no `RUNTIME_DIRECTORY` the state stays on disk, with a warning.
+- A web check without `mode=` (every `HTTP_` line from 0.3 and 0.4) now has the DNS rebinding
+  guard of 0.5.1, too: a public name that turns internal is refused ("a public address led to
+  an internal one, refused").
+- A web check asks the resolver once per five minutes whether its name is public or internal,
+  not twice per run and again at every redirect. The guard at every connect is unchanged.
+- Text from other machines loses the characters that reorder or hide text: bidirectional marks
+  and overrides, zero-width characters, line and paragraph separators, byte order mark.
+- Tests no longer read or write the host's `/run/little-watchdog`.
+
+### Changed
+
+- The unit has no start limit any more. A crash loop is slowed down (10 s growing to 5 min)
+  instead of ending with the service "failed" for good. Needs systemd 254 for the growing
+  pause; older versions keep 10 s.
+- `little-watchdog.env.bak` is reset by tmpfiles.d like the config file.
+
 ## [0.6.0] - 2026-11-05
 
 ### Added

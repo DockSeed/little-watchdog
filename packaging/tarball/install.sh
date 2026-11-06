@@ -11,6 +11,7 @@ set -e
 
 here=$(cd "$(dirname "$0")" && pwd)
 bin=/usr/local/bin/little-wd
+man=/usr/local/share/man/man1/little-wd.1
 unit=/etc/systemd/system/little-watchdog.service
 mode=install purge=0 dry=0
 for a in "$@"; do
@@ -46,7 +47,7 @@ fi
 
 if [ "$mode" = uninstall ]; then
 	run systemctl disable --now little-watchdog.service || true
-	run rm -f "$unit" "$bin" /etc/sysusers.d/little-wd.conf /etc/tmpfiles.d/little-wd.conf
+	run rm -f "$unit" "$bin" /etc/sysusers.d/little-wd.conf /etc/tmpfiles.d/little-wd.conf "$man"
 	if [ "$purge" = 1 ]; then
 		run rm -rf /etc/little-watchdog /var/lib/little-watchdog
 	else
@@ -59,12 +60,14 @@ fi
 if [ "$dry" = 1 ]; then
 	echo "+ install -m 0755 $here/little-wd $bin"
 	echo "+ write $unit (ExecStart=$bin run)"
+	echo "+ install -m 0644 $here/little-wd.1 $man"
 else
 	install -D -m 0755 "$here/little-wd" "$bin"
 	install -d -m 0755 /etc/systemd/system
 	sed "s#^ExecStart=/usr/bin/little-wd#ExecStart=$bin#" "$here/contrib/little-watchdog.service" >"$unit.new"
 	chmod 0644 "$unit.new"
 	mv "$unit.new" "$unit"
+	install -D -m 0644 "$here/little-wd.1" "$man"
 fi
 run install -D -m 0644 "$here/contrib/sysusers.d/little-wd.conf" /etc/sysusers.d/little-wd.conf
 run systemd-sysusers /etc/sysusers.d/little-wd.conf

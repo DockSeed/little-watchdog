@@ -30,12 +30,14 @@ deb() { # debarch binary-suffix
 	local root="$work/deb-$arch" doc
 	doc="$root/usr/share/doc/little-watchdog"
 	mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/usr/lib/systemd/system" "$root/usr/lib/sysusers.d" \
-		"$root/usr/lib/tmpfiles.d" "$doc/examples"
+		"$root/usr/lib/tmpfiles.d" "$root/usr/share/man/man1" "$doc/examples"
 	install -m 0755 "$bin" "$root/usr/bin/little-wd"
 	install -m 0644 contrib/little-watchdog.service "$root/usr/lib/systemd/system/little-watchdog.service"
 	install -m 0644 contrib/sysusers.d/little-wd.conf "$root/usr/lib/sysusers.d/little-wd.conf"
 	install -m 0644 contrib/tmpfiles.d/little-wd.conf "$root/usr/lib/tmpfiles.d/little-wd.conf"
 	install -m 0644 contrib/little-watchdog.env.example "$doc/examples/little-watchdog.env.example"
+	gzip -9n <docs/little-wd.1 >"$root/usr/share/man/man1/little-wd.1.gz"
+	chmod 0644 "$root/usr/share/man/man1/little-wd.1.gz"
 	install -m 0644 README.md "$doc/README.md"
 	install -m 0644 packaging/debian/copyright "$doc/copyright"
 	install -m 0644 "$golicense" "$doc/LICENSE.go"
@@ -77,6 +79,7 @@ tarball() { # binary-suffix
 	install -m 0755 "$bin" "$root/little-wd"
 	install -m 0755 packaging/tarball/install.sh "$root/install.sh"
 	install -m 0644 packaging/tarball/README.txt "$root/README.txt"
+	install -m 0644 docs/little-wd.1 "$root/little-wd.1"
 	install -m 0644 LICENSE "$root/LICENSE"
 	install -m 0644 "$golicense" "$root/LICENSE.go"
 	# the four files by name: a stray local file in contrib/ must never end up in the archive

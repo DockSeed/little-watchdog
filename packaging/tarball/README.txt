@@ -13,5 +13,5 @@ delete the config as well). Look first at what it would do: ./install.sh --dry-r
 
 Setup (Telegram bot, checks, dead-man's-switch):
   https://github.com/DockSeed/little-watchdog/blob/main/docs/setup.md
-Documentation: https://github.com/DockSeed/little-watchdog
+Documentation: https://github.com/DockSeed/little-watchdog, and  man little-wd
 Licence: MIT (LICENSE); the Go runtime inside little-wd: BSD-3-Clause (LICENSE.go).

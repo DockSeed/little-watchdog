@@ -1,0 +1,190 @@
+.\" SPDX-FileCopyrightText: the little-watchdog contributors
+.\" SPDX-License-Identifier: MIT
+.TH LITTLE-WD 1 "November 6, 2026" "little-watchdog"
+.SH NAME
+little\-wd \- small homelab watchdog with Telegram alarms
+.SH SYNOPSIS
+.B little\-wd
+.RB [ \-config
+.IR path ]
+.br
+.B little\-wd
+.RB { run | status | check }
+.RB [ \-config
+.IR path ]
+.br
+.B little\-wd
+.RB { version | \-\-version | \-h | \-\-help }
+.SH DESCRIPTION
+.B little\-wd
+watches web pages, TCP ports and hosts, and the machine it runs on.
+It sends a Telegram message when something changes.
+The watching is done by a systemd service, which runs
+.BR "little\-wd run" ;
+the other commands set it up and show what it sees.
+.SH COMMANDS
+.TP
+(none)
+Open the full-screen program: status of all checks, and setup.
+It needs a terminal.
+Press
+.B ?
+for the keys.
+Quitting does not stop the service.
+.TP
+.B run
+Run the daemon in the foreground.
+The service does this; run it by hand only to try something.
+It waits for a usable config instead of failing.
+SIGHUP re-reads the config, SIGINT and SIGTERM stop it.
+.TP
+.B status
+Print the state file as a table.
+Runs no check.
+Adds a STALE line when the daemon has not reported lately.
+.TP
+.B check
+Run every check once and print one line per check.
+Sends nothing to Telegram and writes no state.
+.TP
+.B version
+Print the version.
+.PP
+.B little\-wd help
+is the same as
+.BR \-\-help .
+.B little\-wd
+.I command
+.B \-h
+shows the help of one command.
+.SH OPTIONS
+.TP
+.BI \-config " path"
+Config file.
+Default: the value of
+.BR LITTLE_WATCHDOG_CONFIG ,
+else
+.IR /etc/little\-watchdog/little\-watchdog.env .
+.TP
+.BR \-h ", " \-\-help
+Show the help and exit.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I /etc/little\-watchdog/little\-watchdog.env
+The config, one
+.IB KEY = value
+per line.
+Group
+.B little\-wd
+may edit it.
+.TP
+.I /etc/little\-watchdog/little\-watchdog.env.bak
+The config as it was before
+.B little\-wd
+saved its first change in a run.
+.TP
+.I /var/lib/little\-watchdog/state.json
+The state: results, since when, the 24 hour history.
+Written about every 10 minutes.
+With
+.B STATE_IN_RAM=yes
+it lives in the runtime directory instead.
+.TP
+.I /run/little\-watchdog/
+The runtime directory, in RAM, made by the service.
+It holds the heartbeat
+.RI ( state.json.alive )
+and the last 30 minutes of every measurement
+.RI ( state.json.fine ).
+Without
+.B RUNTIME_DIRECTORY
+(the daemon started by hand) both files lie next to the state file.
+.TP
+.I /usr/lib/systemd/system/little\-watchdog.service
+The unit (\fI/etc/systemd/system/\fR if installed from the tar.gz).
+.TP
+.I /usr/share/doc/little\-watchdog/examples/little\-watchdog.env.example
+An example config.
+.SH ENVIRONMENT
+.TP
+.B LITTLE_WATCHDOG_CONFIG
+Config file, when
+.B \-config
+is not given.
+.TP
+.B RUNTIME_DIRECTORY
+Absolute path of the runtime directory; systemd sets it for the service.
+If unset, the commands look in
+.IR /run/little\-watchdog ,
+and the daemon writes nothing there.
+.TP
+.B LITTLE_WATCHDOG_DEBUG
+If set, the daemon logs a few extra lines.
+.TP
+.BR GOMAXPROCS ", " GOMEMLIMIT
+For
+.BR run :
+if unset, the daemon uses one thread and a soft memory limit of 24 MiB.
+.TP
+.BR NO_COLOR ", " TERM ", " COLORTERM ", " LC_ALL ", " LC_CTYPE ", " LANG
+Colours and characters of the full-screen program.
+.B NO_COLOR
+turns colours off; without a UTF-8 locale it draws plain ASCII.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.B run
+exits with 0 after SIGINT or SIGTERM.
+.B status
+exits with 0 whenever it could read the state,
+also when checks fail or the daemon is stale.
+.B check
+exits with 0 only if all checks are OK.
+.TP
+.B 1
+An error: the config or state cannot be read, a check failed
+.RB ( check ),
+or the program cannot run.
+.TP
+.B 2
+A wrong command or option, or no terminal for the full-screen program.
+.SH EXAMPLES
+Set up and look at the checks:
+.PP
+.RS
+.nf
+little\-wd
+.fi
+.RE
+.PP
+Print the state from a script, and test whether all is well:
+.PP
+.RS
+.nf
+little\-wd status
+little\-wd check && echo all OK
+.fi
+.RE
+.PP
+Use another config file:
+.PP
+.RS
+.nf
+little\-wd check \-config ./test.env
+.fi
+.RE
+.SH SEE ALSO
+.BR systemctl (1),
+.BR systemd.service (5)
+.PP
+Documentation:
+.I /usr/share/doc/little\-watchdog/README.md
+and, in the source, docs/setup.md (first steps),
+docs/config.md (all config keys)
+and docs/screens.md (the full-screen program).
+.PP
+https://github.com/DockSeed/little-watchdog

@@ -74,11 +74,27 @@ func (h *HTTP) SetMode(label, mode string) *HTTP {
 	}
 	h.client.CheckRedirect = followRedirect(false)
 	if mode == config.ModeLenient && strings.HasPrefix(strings.ToLower(h.url), "http://") {
+		follow := h.client.CheckRedirect
+		h.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if toTLSOfSameHost(req, via) {
+				return errTLSUpgrade
+			}
+			return follow(req, via)
+		}
 		tr := h.client.Transport.(*http.Transport).Clone()
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // only host:port was given: no name a certificate could prove
 		h.insecure = &http.Client{Transport: tr, Timeout: h.timeout, CheckRedirect: followRedirect(true)}
 	}
 	return h
+}
+
+// errTLSUpgrade: a lenient http:// address redirects to https:// of the same host. The check asks
+// again with the client without certificate checks, as it does for a port that speaks TLS.
+var errTLSUpgrade = errors.New("redirect to https on the same host")
+
+func toTLSOfSameHost(req *http.Request, via []*http.Request) bool {
+	last := via[len(via)-1].URL
+	return req.URL.Scheme == "https" && last.Scheme == "http" && strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname())
 }
 
 // errInternalRedirect: a redirect from a public server to a loopback, private or link-local address.
@@ -374,6 +390,9 @@ func (h *HTTP) runMode(ctx context.Context) Result {
 		}
 	}
 	resp, connected, err := try(first, firstURL)
+	if errors.Is(err, errTLSUpgrade) { // the plain client stopped at the redirect to https
+		resp, connected, err = try(h.insecure, firstURL)
+	}
 	// Plain HTTP to a TLS port gets no HTTP answer, or a 400 (Go, nginx): ask over the
 	// other scheme, once while it is unknown, and whenever there is no HTTP answer.
 	retry := second != nil && ((err != nil && notWeb(ctx, err, connected)) ||

@@ -121,6 +121,27 @@ func TestHTTPLenientFindsTLS(t *testing.T) {
 	if r.Status != FAIL || !strings.Contains(r.Detail, "certificate") {
 		t.Fatalf("%+v", r)
 	}
+	// An http:// address that redirects to https:// of the same host is asked the same way
+	// (nginx on one port); strict, another host and an https:// address keep the check.
+	tests := []struct {
+		mode, to string
+		want     Status
+	}{
+		{config.ModeLenient, srv.URL + "/x", OK},
+		{config.ModeLenient, "https://localhost:" + addr[strings.LastIndex(addr, ":")+1:] + "/x", FAIL},
+		{config.ModeStrict, srv.URL + "/x", FAIL},
+	}
+	for _, tt := range tests {
+		to := tt.to
+		plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, to, http.StatusMovedPermanently) }))
+		h := NewHTTP("x", plain.URL, "", 2*time.Second).SetMode("", tt.mode)
+		for i := 0; i < 2; i++ {
+			if r := h.Run(context.Background()); r.Status != tt.want || (tt.want == FAIL && !strings.Contains(r.Detail, "certificate")) || (tt.want == OK && !strings.HasPrefix(r.Value, "web 401, ")) {
+				t.Errorf("%s -> %s, run %d: %+v", tt.mode, tt.to, i, r)
+			}
+		}
+		plain.Close()
+	}
 }
 
 // A plain web server that answers 400 stays on http after one look at https.

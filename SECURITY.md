@@ -13,8 +13,9 @@ sandbox, opens no port, starts no programs, makes no requests except checks,
 Telegram and the ping, and never updates itself. Only members of the group
 `little-wd` can read the config. Certificates are verified, and foreign text
 is cleaned before it is shown. One exception: a lenient web check
-(`mode=lenient`) on an `http://` address whose port speaks TLS asks again over
-`https://` without a certificate check.
+(`mode=lenient`) on an `http://` address whose port speaks TLS, or which
+redirects to `https://` of the same host, asks over `https://` without a
+certificate check.
 Redirects are followed only by lenient and strict web checks, at most 5.
 
 ## What is not

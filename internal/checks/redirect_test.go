@@ -172,6 +172,14 @@ func TestDNSRebindingIsRefused(t *testing.T) {
 	if r.Status != FAIL || r.Detail != errInternalAddr.Error() {
 		t.Fatalf("after a redirect: %+v", r)
 	}
+	// lenient: https on the same name is asked without a certificate check, the dialer still refuses
+	tlsTarget, tlsHits := counter(t, true)
+	pubTLS := redirector(t, "https://localhost:"+srvPort(tlsTarget)+"/x")
+	publicLocalhost(t, pubTLS)
+	r = NewHTTP("x", "http://localhost:"+srvPort(pubTLS)+"/", "", 2*time.Second).SetMode("", config.ModeLenient).Run(context.Background())
+	if r.Status != FAIL || r.Detail != errInternalAddr.Error() || tlsHits.Load() != 0 {
+		t.Fatalf("after a redirect to https: %+v, %d hits", r, tlsHits.Load())
+	}
 	if hits.Load() != 0 {
 		t.Fatalf("the internal target was asked %d times", hits.Load())
 	}

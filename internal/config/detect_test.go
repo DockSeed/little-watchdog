@@ -11,16 +11,16 @@ import (
 
 func TestDetect(t *testing.T) {
 	tests := []struct{ in, typ, target, mode, name string }{
-		{"192.168.178.12", "ping", "192.168.178.12", "", "192.168.178.12"},
+		{"192.0.2.12", "ping", "192.0.2.12", "", "192.0.2.12"},
 		{" nas.lan ", "ping", "nas.lan", "", "nas.lan"},
 		{"nas", "ping", "nas", "", "nas"},
 		{"fe80::1", "ping", "fe80::1", "", "fe80::1"},
 		{"[2001:db8::5]", "ping", "2001:db8::5", "", "2001:db8::5"},
-		{"192.168.178.12:2283", "http", "http://192.168.178.12:2283", "lenient", "192.168.178.12:2283"},
+		{"192.0.2.12:2283", "http", "http://192.0.2.12:2283", "lenient", "192.0.2.12:2283"},
 		{"[2001:db8::5]:8080", "http", "http://[2001:db8::5]:8080", "lenient", "[2001:db8::5]:8080"},
 		{"nas.lan:22", "http", "http://nas.lan:22", "lenient", "nas.lan:22"},
-		{"https://dockseed.de", "http", "https://dockseed.de", "lenient", "dockseed.de"},
-		{"https://dockseed.de/", "http", "https://dockseed.de/", "lenient", "dockseed.de"},
+		{"https://example.org", "http", "https://example.org", "lenient", "example.org"},
+		{"https://example.org/", "http", "https://example.org/", "lenient", "example.org"},
 		{"http://h:8096", "http", "http://h:8096", "lenient", "h:8096"},
 		{"https://h/health", "http", "https://h/health", "strict", "h/health"},
 		{"https://h/?x=1", "http", "https://h/?x=1", "strict", "h"},
@@ -44,7 +44,7 @@ func TestKeyName(t *testing.T) {
 		"Immich Fotos":   "IMMICH_FOTOS",
 		"Größe über Maß": "GROESSE_UEBER_MASS",
 		"ÄÖÜ":            "AEOEUE",
-		"dockseed.de":    "DOCKSEED_DE",
+		"example.org":    "EXAMPLE_ORG",
 		"  --a--b--  ":   "A_B",
 		"192.168.1.5:22": "192_168_1_5_22",
 		"Café":           "CAF",
@@ -64,7 +64,7 @@ func TestFreeKey(t *testing.T) {
 		{"ping", "immich", "PING_IMMICH_3"},
 		{"ping", "Free", "PING_FREE"},
 		{"http", "?!", "HTTP_CHECK_2"},
-		{"http", "dockseed.de", "HTTP_DOCKSEED_DE"},
+		{"http", "example.org", "HTTP_EXAMPLE_ORG"},
 	} {
 		if got := FreeKey(f, tt.typ, tt.name); got != tt.want {
 			t.Errorf("%s %q: %s, want %s", tt.typ, tt.name, got, tt.want)
@@ -77,9 +77,9 @@ func TestWatchRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.env")
 	f, _ := OpenFile(p)
 	for _, in := range []struct{ addr, name string }{
-		{"192.168.178.12:2283", `Immich "Fotos" \ ä`},
-		{"192.168.178.12", ""},
-		{"https://dockseed.de/health", "Health"},
+		{"192.0.2.12:2283", `Immich "Fotos" \ ä`},
+		{"192.0.2.12", ""},
+		{"https://example.org/health", "Health"},
 	} {
 		w, err := Detect(in.addr)
 		if err != nil {
@@ -100,16 +100,16 @@ func TestWatchRoundTrip(t *testing.T) {
 		t.Fatal(err, c.Warnings)
 	}
 	want := []CheckSpec{
-		{Name: "immich_fotos_ae", Type: "http", Target: "http://192.168.178.12:2283", Label: `Immich "Fotos" \ ä`, Mode: "lenient"},
-		{Name: "192_168_178_12", Type: "ping", Target: "192.168.178.12", Label: "192.168.178.12"},
-		{Name: "health", Type: "http", Target: "https://dockseed.de/health", Label: "Health", Mode: "strict"},
+		{Name: "immich_fotos_ae", Type: "http", Target: "http://192.0.2.12:2283", Label: `Immich "Fotos" \ ä`, Mode: "lenient"},
+		{Name: "192_0_2_12", Type: "ping", Target: "192.0.2.12", Label: "192.0.2.12"},
+		{Name: "health", Type: "http", Target: "https://example.org/health", Label: "Health", Mode: "strict"},
 	}
 	for i, s := range c.Checks {
 		if s != want[i] {
 			t.Errorf("%d: %+v, want %+v", i, s, want[i])
 		}
 	}
-	if !strings.Contains(f.Text(), `HTTP_IMMICH_FOTOS_AE=http://192.168.178.12:2283 name="Immich \"Fotos\" \\ ä" mode=lenient`) {
+	if !strings.Contains(f.Text(), `HTTP_IMMICH_FOTOS_AE=http://192.0.2.12:2283 name="Immich \"Fotos\" \\ ä" mode=lenient`) {
 		t.Fatal(f.Text())
 	}
 }

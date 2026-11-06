@@ -220,7 +220,7 @@ func TestPublicTargetStillAnswers(t *testing.T) {
 
 func TestInternalAddr(t *testing.T) {
 	for s, want := range map[string]bool{
-		"127.0.0.1": true, "::1": true, "::ffff:127.0.0.1": true, "10.1.2.3": true, "192.168.178.1": true,
+		"127.0.0.1": true, "::1": true, "::ffff:127.0.0.1": true, "10.1.2.3": true, "192.168.1.1": true,
 		"172.16.0.1": true, "fd00::1": true, "fe80::1": true, "169.254.169.254": true, "100.64.0.1": true,
 		"100.127.255.254": true, "0.0.0.0": true, "0.1.2.3": true, "::": true, "192.0.0.8": true,
 		"198.18.0.1": true, "224.0.0.1": true, "ff02::1": true, "255.255.255.255": true,

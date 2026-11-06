@@ -96,7 +96,7 @@ func TestAlarmsWithHostileNamesAndDetailsAreValidAndBold(t *testing.T) {
 	}
 	validAll(t, f, got)
 	all := strings.Join(got, "\n")
-	if !strings.Contains(all, "❌ <b>http:web</b> on <b>testhost</b> is down since ") || !strings.Contains(all, "valid for &lt;nas&gt;, not homelab &amp; co.") ||
+	if !strings.Contains(all, "❌ <b>http:web</b> on <b>testhost</b> has been down since ") || !strings.Contains(all, "valid for &lt;nas&gt;, not homelab &amp; co.") ||
 		!strings.Contains(all, "✅ <b>http:&lt;b&gt;photos&lt;/b&gt;&amp;</b> on <b>testhost</b> is back after ") {
 		t.Fatalf("%q", all)
 	}
@@ -152,7 +152,7 @@ func TestAlarmIsNotLostWhenTelegramRejectsTheFormatting(t *testing.T) {
 		a.Cycle(context.Background())
 	}
 	got := f.Texts()
-	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ http:web on testhost is down since ") || !strings.HasSuffix(got[0], ": a < b & c.") || strings.Contains(got[0], "<b>") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ http:web on testhost has been down since ") || !strings.HasSuffix(got[0], ": a < b & c.") || strings.Contains(got[0], "<b>") {
 		t.Fatalf("%q", got)
 	}
 	if len(a.Eng.PendingMessages()) != 0 {

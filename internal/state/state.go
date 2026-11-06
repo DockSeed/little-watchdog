@@ -359,11 +359,11 @@ func (e *Engine) Observe(c checks.Check, r checks.Result, now time.Time) (msg st
 			since := When(en.DownSince, now)
 			switch {
 			case r.NoAnswer:
-				msg = fmt.Sprintf("❌ %s%s is not answering since %s.", bname, telegram.On(e.Host), since)
+				msg = fmt.Sprintf("❌ %s%s has not answered since %s.", bname, telegram.On(e.Host), since)
 			case isService(c.Type()):
-				msg = fmt.Sprintf("❌ %s%s is down since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
+				msg = fmt.Sprintf("❌ %s%s has been down since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
 			default:
-				msg = fmt.Sprintf("❌ %s%s has a problem since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
+				msg = fmt.Sprintf("❌ %s%s has had a problem since %s: %s.", bname, telegram.On(e.Host), since, bdetail)
 			}
 		}
 	case checks.OK:

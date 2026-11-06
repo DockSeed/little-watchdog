@@ -83,7 +83,7 @@ func TestCycleSendsOnlyOnChange(t *testing.T) {
 	a.Cycle(ctx)
 	a.Cycle(ctx)
 	got := f.Texts()
-	if len(got) != 2 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> on <b>testhost</b> is down since ") || !strings.HasSuffix(got[0], ": HTTP 502.") || !strings.HasPrefix(got[1], "✅ <b>http:web</b> on <b>testhost</b> is back after ") {
+	if len(got) != 2 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> on <b>testhost</b> has been down since ") || !strings.HasSuffix(got[0], ": HTTP 502.") || !strings.HasPrefix(got[1], "✅ <b>http:web</b> on <b>testhost</b> is back after ") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -283,7 +283,7 @@ func TestMessagesWithoutHost(t *testing.T) {
 		a.Cycle(ctx)
 	}
 	got := f.Texts()
-	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> is down since ") || !strings.HasSuffix(got[0], ": down.") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "❌ <b>http:web</b> has been down since ") || !strings.HasSuffix(got[0], ": down.") {
 		t.Fatalf("%q", got)
 	}
 }

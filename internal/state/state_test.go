@@ -50,7 +50,7 @@ func TestMessageHasNoClockPrefixButKeepsEventTime(t *testing.T) {
 	e := NewEngine(1, 1)
 	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
 	m := e.Observe(fake{"a", "http"}, bad, at)
-	if !strings.HasPrefix(m, "❌ <b>a</b> is down since 14:07") {
+	if !strings.HasPrefix(m, "❌ <b>a</b> has been down since 14:07") {
 		t.Fatalf("%q", m)
 	}
 	if q := e.Queue(); len(q) != 1 || !q[0].At.Equal(at) {
@@ -133,14 +133,14 @@ func TestHysteresis(t *testing.T) {
 	}{
 		{"quiet ok", fake{"a", "http"}, []checks.Result{ok, ok, ok}, nil},
 		{"2 fails not enough", fake{"a", "http"}, []checks.Result{ok, bad, bad, ok}, nil},
-		{"3 fails alarm once", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, bad, bad}, []string{"❌ <b>a</b> is down since {1}: HTTP 502."}},
-		{"recover needs 2", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, bad, ok}, []string{"❌ <b>a</b> is down since {1}: HTTP 502."}},
-		{"recover msg", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, ok}, []string{"❌ <b>a</b> is down since {1}: HTTP 502.", "✅ <b>a</b> is back after 4 min."}},
-		{"no answer since", fake{"n", "host"}, []checks.Result{ok, noan, noan, noan}, []string{"❌ <b>n</b> is not answering since {1}."}},
+		{"3 fails alarm once", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, bad, bad}, []string{"❌ <b>a</b> has been down since {1}: HTTP 502."}},
+		{"recover needs 2", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, bad, ok}, []string{"❌ <b>a</b> has been down since {1}: HTTP 502."}},
+		{"recover msg", fake{"a", "http"}, []checks.Result{ok, bad, bad, bad, ok, ok}, []string{"❌ <b>a</b> has been down since {1}: HTTP 502.", "✅ <b>a</b> is back after 4 min."}},
+		{"no answer since", fake{"n", "host"}, []checks.Result{ok, noan, noan, noan}, []string{"❌ <b>n</b> has not answered since {1}."}},
 		{"unknown ignored", fake{"a", "http"}, []checks.Result{ok, unk, unk, unk, bad, unk}, nil},
-		{"hold keeps fail", fake{"t", "temp"}, []checks.Result{ok, bad, bad, bad, hold, ok, hold, ok, ok}, []string{"❌ <b>t</b> has a problem since {1}: HTTP 502.", "✅ <b>t</b> is back after 7 min."}},
+		{"hold keeps fail", fake{"t", "temp"}, []checks.Result{ok, bad, bad, bad, hold, ok, hold, ok, ok}, []string{"❌ <b>t</b> has had a problem since {1}: HTTP 502.", "✅ <b>t</b> is back after 7 min."}},
 		{"hold while ok is ok", fake{"t", "temp"}, []checks.Result{ok, hold, hold, bad, hold, bad, bad}, nil},
-		{"first obs fail alarms after 3", fake{"a", "http"}, []checks.Result{bad, bad, bad}, []string{"❌ <b>a</b> is down since {0}: HTTP 502."}},
+		{"first obs fail alarms after 3", fake{"a", "http"}, []checks.Result{bad, bad, bad}, []string{"❌ <b>a</b> has been down since {0}: HTTP 502."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestPendingSurvivesRestart(t *testing.T) {
 		t.Fatal(ids)
 	}
 	m, _ := e2.Peek("a")
-	if m != "❌ <b>a</b> is down since "+t0.Add(time.Minute).Local().Format("15:04")+": HTTP 502." {
+	if m != "❌ <b>a</b> has been down since "+t0.Add(time.Minute).Local().Format("15:04")+": HTTP 502." {
 		t.Fatal(m)
 	}
 	e2.Delivered("a", m, t0)
@@ -286,7 +286,7 @@ func TestHostInMessagesAndBrief(t *testing.T) {
 	e := NewEngine(1, 1)
 	e.Host = "box"
 	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
-	if m := e.Observe(fake{"a", "http"}, bad, at); m != "❌ <b>a</b> on <b>box</b> is down since 14:07: HTTP 502." {
+	if m := e.Observe(fake{"a", "http"}, bad, at); m != "❌ <b>a</b> on <b>box</b> has been down since 14:07: HTTP 502." {
 		t.Fatal(m)
 	}
 	b := Brief("box", e.Snapshot(), 2, time.Time{}, at)
@@ -419,7 +419,7 @@ func TestDownSinceIsTheFirstFailure(t *testing.T) {
 	e.Observe(c, bad, at(0))
 	e.Observe(c, bad, at(1))
 	m := e.Observe(c, checks.Result{Status: checks.FAIL, Detail: "no answer within 10 s"}, at(3))
-	if want := "❌ <b>photos</b> on <b>homelab</b> is down since 17:28: no answer within 10 s."; m != want {
+	if want := "❌ <b>photos</b> on <b>homelab</b> has been down since 17:28: no answer within 10 s."; m != want {
 		t.Fatalf("%q", m)
 	}
 	if got := e.Snapshot()[0].Detail; got != "no answer within 10 s" {
@@ -436,7 +436,7 @@ func TestDownSinceIsTheFirstFailure(t *testing.T) {
 	e.Observe(c, bad, day.Add(-30*time.Hour))
 	e.Observe(c, bad, day.Add(-29*time.Hour))
 	m = e.Observe(c, bad, day)
-	if !strings.Contains(m, "is down since Nov 2 ") {
+	if !strings.Contains(m, "has been down since Nov 2 ") {
 		t.Fatalf("%q", m)
 	}
 }
@@ -787,7 +787,7 @@ func TestHelpIsKeptForTheScreenNotTheMessage(t *testing.T) {
 	at := time.Date(2026, 11, 2, 14, 7, 0, 0, time.Local)
 	r := checks.Result{Status: checks.FAIL, Detail: "connection refused", Value: "connection refused", Help: checks.Help(checks.KindRefused)}
 	m := e.Observe(fake{"a", "http"}, r, at)
-	if want := "❌ <b>a</b> is down since 14:07: connection refused."; m != want {
+	if want := "❌ <b>a</b> has been down since 14:07: connection refused."; m != want {
 		t.Fatalf("the message is unchanged by the hint: %q, want %q", m, want)
 	}
 	if en := e.Snapshot()[0]; en.Help != checks.Help(checks.KindRefused) {

@@ -30,7 +30,7 @@ func TestPermanentlyRejectedMessageDoesNotBlockOthers(t *testing.T) {
 		a.Cycle(ctx)
 	}
 	got := strings.Join(f.Texts(), "\n")
-	if !strings.Contains(got, "<b>http:zz</b> on <b>testhost</b> is down since ") || !strings.Contains(got, ": fine.") || strings.Contains(got, "BADTEXT") {
+	if !strings.Contains(got, "<b>http:zz</b> on <b>testhost</b> has been down since ") || !strings.Contains(got, ": fine.") || strings.Contains(got, "BADTEXT") {
 		t.Fatalf("%q", got)
 	}
 	if n := strings.Count(buf.String(), "dropped"); n != 1 {
@@ -60,7 +60,7 @@ func TestMessagesOfOneCycleAreBundledWithoutClockPrefix(t *testing.T) {
 		t.Fatalf("%q", got[0])
 	}
 	for _, l := range lines {
-		if !regexp.MustCompile(`^❌ <b>\S+</b> on <b>testhost</b> is down since \d\d:\d\d: \w+\.$`).MatchString(l) {
+		if !regexp.MustCompile(`^❌ <b>\S+</b> on <b>testhost</b> has been down since \d\d:\d\d: \w+\.$`).MatchString(l) {
 			t.Fatalf("unexpected line: %q", l)
 		}
 	}
@@ -88,7 +88,7 @@ func TestBundleSplitsAt4096(t *testing.T) {
 		if len([]rune(m)) > 4096 {
 			t.Fatalf("message of %d runes", len([]rune(m)))
 		}
-		total += strings.Count(m, "is down since")
+		total += strings.Count(m, "has been down since")
 	}
 	if total != 30 {
 		t.Fatalf("%d of 30 alarms delivered", total)

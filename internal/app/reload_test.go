@@ -157,7 +157,7 @@ func TestReloadTokenChangeNewClient(t *testing.T) {
 	if r.a.TG == old || r.a.Cfg.Token != tok2 {
 		t.Fatal("no new client")
 	}
-	if got := r.f.Texts(); len(got) != 1 || !strings.Contains(got[0], "is down since") {
+	if got := r.f.Texts(); len(got) != 1 || !strings.Contains(got[0], "has been down since") {
 		t.Fatalf("alarm must go out with the new token: %q", got)
 	}
 	r.a.Log.Printf("leak %s %s", tok, tok2)

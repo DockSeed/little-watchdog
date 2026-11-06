@@ -305,7 +305,7 @@ func TestMenu80(t *testing.T) { // main menu
 	has(t, rs[22], "↑↓ move", "Enter open", "Q quit", "? help")
 	raw := r.raw()
 	has(t, raw, "\x1b[0;38;5;234;48;5;80m", "48;5;236") // header bar, hint bar
-	r.send("q")
+	r.send("Q")                                         // the footer says Q, so Q quits too
 	r.finish()
 }
 

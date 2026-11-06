@@ -312,7 +312,7 @@ func (m *model) key(k Key) {
 	}
 	switch {
 	case m.help:
-		if k.Code == Esc || k.Code == Enter || (k.Code == Rune && (k.R == 'q' || k.R == '?')) {
+		if k.Code == Esc || k.Code == Enter || (k.Code == Rune && (k.R == 'q' || k.R == 'Q' || k.R == '?')) {
 			m.help = false
 		}
 		return
@@ -325,7 +325,7 @@ func (m *model) key(k Key) {
 		m.formKey(k)
 		return
 	case dDetails:
-		if k.Code == Esc || k.Code == Enter || (k.Code == Rune && k.R == 'q') {
+		if k.Code == Esc || k.Code == Enter || (k.Code == Rune && (k.R == 'q' || k.R == 'Q')) {
 			m.dk = dNone
 		}
 		return
@@ -380,12 +380,12 @@ func move(k Key, c, n int) int {
 	return c
 }
 
-func isBack(k Key) bool { return k.Code == Esc || (k.Code == Rune && k.R == 'q') }
+func isBack(k Key) bool { return k.Code == Esc || (k.Code == Rune && (k.R == 'q' || k.R == 'Q')) }
 
 func (m *model) menuKey(k Key) {
 	m.cur = move(k, m.cur, len(menuItems))
 	switch {
-	case k.Code == Rune && k.R == 'q':
+	case k.Code == Rune && (k.R == 'q' || k.R == 'Q'):
 		m.quit = true
 	case k.Code == Esc: // Esc is "back" everywhere else, so here it asks first
 		bg := "The watchdog keeps running in the background."

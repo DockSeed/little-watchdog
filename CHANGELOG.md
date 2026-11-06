@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-06
+
 ### Added
 
 - Manual page `man little-wd`, in the `.deb` and the tar.gz (`install.sh` installs it to
@@ -13,7 +15,7 @@
   runtime directory (RAM) in either mode, not to disk. The heartbeat was a disk write every
   round that "writes/h" did not count, the fine history a second fsync in every write round.
   Without a usable runtime directory they stay next to the state file. Until the service runs
-  the new version, an older `little-wd` reports "daemon not running".
+  the new version, an older `little-wd` reports "daemon not running" (0.6.1 says "service not running").
 - The service writes below `/run/little-watchdog` only when systemd gave it a
   `RUNTIME_DIRECTORY`. A second instance (another unit, a test run) used to write into the
   directory of the installed service, and systemd removed it when that instance stopped. With
@@ -33,9 +35,6 @@
 - Each command has its own help (`little-wd status -h`) instead of the raw option list; an
   unknown command or option says so first, then shows the help, and exits with 2. The overview
   lists `--version` and `man little-wd`.
-- The unit has no start limit any more. A crash loop is slowed down (10 s growing to 5 min)
-  instead of ending with the service "failed" for good. Needs systemd 254 for the growing
-  pause; older versions keep 10 s.
 - `little-watchdog.env.bak` is reset by tmpfiles.d like the config file.
 - Wording: the background program is "the service" everywhere ("service not running"), the
   menu entry is "Dead-man's switch", the details say "Address" instead of "Target", and the

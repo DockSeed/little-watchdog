@@ -23,8 +23,8 @@ Telegram or Healthchecks.io.
 On Debian, Ubuntu or Raspberry Pi OS:
 
 ```sh
-wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.6.0/little-watchdog_0.6.0_$(dpkg --print-architecture).deb
-sudo apt install ./little-watchdog_0.6.0_*.deb
+wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/download/v0.6.1/little-watchdog_0.6.1_$(dpkg --print-architecture).deb
+sudo apt install ./little-watchdog_0.6.1_*.deb
 ```
 
 1. Answer `y` when the installer asks to add you to the group `little-wd`.
@@ -65,7 +65,7 @@ Not needed for the packages above.
 
 ```sh
 go test -race ./...
-scripts/build.sh 0.6.0      # all packages in ./dist, same bytes every time
+scripts/build.sh 0.6.1      # all packages in ./dist, same bytes every time
 ```
 
 ## Who wrote this

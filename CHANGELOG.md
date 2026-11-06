@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `mode=lenient` on an `http://` address that redirects to `https://` of the same host (nginx on
+  one port, self-signed certificate) no longer fails with "certificate signed by unknown
+  authority". Like an `http://` address on a TLS port it is asked without a certificate check; a
+  redirect to another host, `mode=strict`, and lines without `mode=` are unchanged, and the
+  dialer still refuses an internal address behind a public name.
+- `contains="…"` with quotes in the text (`contains="status":"ok"`) works after `name="…"`, too:
+  a quoted value that does not end at its closing quote is taken as the rest of the line, as it
+  already was when `contains=` came first. 0.6.1 and older refuse such a line;
+  `contains="status\":\"ok\""` works with 0.3.1 and newer.
+
 ## [0.6.1] - 2026-11-06
 
 ### Added

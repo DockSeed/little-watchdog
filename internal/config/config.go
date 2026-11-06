@@ -373,12 +373,7 @@ func Parse(r io.Reader, requireTelegram bool) (*Config, error) {
 					return nil, bad("%v (expected `url` or `url contains=TEXT`)", err)
 				}
 				if oerr != nil {
-					// 0.3.0 took anything after contains= as the text; keep that working.
-					t, ok := strings.CutPrefix(strings.TrimSpace(rest), "contains=")
-					if !ok || t == "" {
-						return nil, bad("%v (expected `url` or `url contains=TEXT`)", oerr)
-					}
-					opts = []option{{"contains", t}}
+					return nil, bad("%v (expected `url` or `url contains=TEXT`)", oerr)
 				}
 			} else if typ == "ping" {
 				if err = pingHost(target); err != nil {
@@ -454,47 +449,64 @@ var optKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // parseOpts reads the options after a check's target: `key=value` or
 // `key="value with blanks"`, separated by blanks. Inside quotes a backslash
 // takes the next character as it is. A bare value of restKey runs to the end
-// of the line (contains=TEXT as in 0.3.0).
+// of the line (contains=TEXT as in 0.3.0). A quoted one that does not parse
+// (`contains="a":"b"`, `contains="a b`, `contains="a" b`) is taken the same
+// way, quotes included.
 func parseOpts(s, restKey string) ([]option, error) {
 	var out []option
+	mark, from := -1, "" // where the last restKey option began
 	for {
 		s = strings.TrimLeft(s, " \t")
 		if s == "" {
 			return out, nil
 		}
-		eq := strings.IndexByte(s, '=')
-		if eq <= 0 || !optKeyRe.MatchString(s[:eq]) {
-			return nil, errors.New("unexpected text after the address (options are key=value)")
+		if restKey != "" && strings.HasPrefix(s, restKey+"=") {
+			mark, from = len(out), s[len(restKey)+1:]
 		}
-		k, v := s[:eq], ""
-		s = s[eq+1:]
-		switch {
-		case strings.HasPrefix(s, `"`):
-			var b strings.Builder
-			i := 1
-			for ; i < len(s) && s[i] != '"'; i++ {
-				if s[i] == '\\' && i+1 < len(s) {
-					i++
-				}
-				b.WriteByte(s[i])
+		k, v, next, err := parseOpt(s, restKey)
+		if err != nil {
+			if mark < 0 {
+				return nil, err
 			}
-			if i >= len(s) {
-				return nil, fmt.Errorf("option %s: missing closing quote", k)
-			}
-			v, s = b.String(), s[i+1:]
-			if s != "" && s[0] != ' ' && s[0] != '\t' {
-				return nil, fmt.Errorf("option %s: expected a blank after the closing quote", k)
-			}
-		case k == restKey:
-			v, s = s, ""
-		default:
-			v, s = s, ""
-			if i := strings.IndexAny(v, " \t"); i >= 0 {
-				v, s = v[:i], v[i:]
-			}
+			return append(out[:mark], option{restKey, from}), nil
 		}
 		out = append(out, option{k, v})
+		s = next
 	}
+}
+
+// parseOpt reads one option at the start of s: key, value, the text after it.
+func parseOpt(s, restKey string) (k, v, next string, err error) {
+	eq := strings.IndexByte(s, '=')
+	if eq <= 0 || !optKeyRe.MatchString(s[:eq]) {
+		return "", "", "", errors.New("unexpected text after the address (options are key=value)")
+	}
+	k, s = s[:eq], s[eq+1:]
+	switch {
+	case strings.HasPrefix(s, `"`):
+		var b strings.Builder
+		i := 1
+		for ; i < len(s) && s[i] != '"'; i++ {
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+			}
+			b.WriteByte(s[i])
+		}
+		if i >= len(s) {
+			return k, "", "", fmt.Errorf("option %s: missing closing quote", k)
+		}
+		v, next = b.String(), s[i+1:]
+		if next != "" && next[0] != ' ' && next[0] != '\t' {
+			return k, "", "", fmt.Errorf("option %s: expected a blank after the closing quote", k)
+		}
+		return k, v, next, nil
+	case k == restKey:
+		return k, s, "", nil
+	}
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		return k, s[:i], s[i:], nil
+	}
+	return k, s, "", nil
 }
 
 // Quote writes v as an option value that parseOpts reads back unchanged.

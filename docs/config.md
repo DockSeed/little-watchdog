@@ -55,12 +55,15 @@ After the URL or `host:port` come options: `key=value` or
 - An unknown option is logged as a warning and skipped, so a line written by a
   newer version still starts.
 - `contains=TEXT` without quotes takes the rest of the line: put it last or
-  quote it.
+  quote it. Quotes that are part of the text are fine there too:
+  `contains="status":"ok"` looks for `"status":"ok"`. Version 0.6.1 and older
+  refuse that line when `name=` stands before it; `contains="status\":\"ok\""`
+  (0.3.1 and newer) means the same.
 
 | Option | For | Meaning |
 |---|---|---|
 | `name="Photo library"` | all checks | Name shown in `little-wd` and in Telegram; any text. Without it the name is `<NAME>` in lower case. |
-| `mode=lenient` | `HTTP_` | Follows up to 5 redirects. Any answer below 500 is OK, and so is a port that answers but is no website ("port open, no website"). An `http://` address on a port that speaks TLS is asked over `https://`, without a certificate check. |
+| `mode=lenient` | `HTTP_` | Follows up to 5 redirects. Any answer below 500 is OK, and so is a port that answers but is no website ("port open, no website"). An `http://` address on a port that speaks TLS is asked over `https://`, without a certificate check; so is one that redirects to `https://` of the same host (0.6.2). A redirect to another host keeps the check. |
 | `mode=strict` | `HTTP_` | Follows up to 5 redirects; only 200 to 299 is OK. |
 | `contains=TEXT` | `HTTP_` | The page must contain TEXT. |
 

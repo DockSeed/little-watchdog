@@ -70,3 +70,11 @@ func TestHTTPCheckSaysWhatHappened(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// Plain is PlainKind without the kind. It turns a network error into a sentence with the facts. timeout is the wait the
+// check was given, target its URL or host:port and took how long the attempt ran.
+// URLs never appear in the text.
+func Plain(err error, timeout time.Duration, target string, took time.Duration) string {
+	s, _ := PlainKind(err, timeout, target, took)
+	return s
+}

@@ -38,21 +38,15 @@ func portOf(target string) string {
 // answers at once); a host that is off fails only after ARP gives up (3 probes, 1 s apart).
 const fastReject = time.Second
 
-// Plain turns a network error into a sentence with the facts. timeout is the wait the
-// check was given, target its URL or host:port and took how long the attempt ran.
-// URLs never appear in the text.
-func Plain(err error, timeout time.Duration, target string, took time.Duration) string {
-	s, _ := PlainKind(err, timeout, target, took)
-	return s
-}
-
 // netFail is the FAIL result of a network error, with the hint for its kind.
 func netFail(err error, timeout time.Duration, target string, took time.Duration) Result {
 	p, k := PlainKind(err, timeout, target, took)
 	return Result{Status: FAIL, Detail: p, Value: p, Help: Help(k)}
 }
 
-// PlainKind is Plain plus the kind of the failure ("" when it is none of the known ones).
+// PlainKind turns a network error into a sentence with the facts, plus the kind of the
+// failure ("" when it is none of the known ones). timeout is the wait the check was given,
+// target its URL or host:port and took how long the attempt ran. URLs never appear in the text.
 func PlainKind(err error, timeout time.Duration, target string, took time.Duration) (string, Kind) {
 	var dns *net.DNSError
 	var ua x509.UnknownAuthorityError

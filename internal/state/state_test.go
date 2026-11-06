@@ -822,3 +822,21 @@ func TestOddOKIsShownNotSent(t *testing.T) {
 		t.Fatalf("odd not cleared: %+v", en)
 	}
 }
+
+// Writes counts write rounds; each writes the state file and its fine history.
+func (e *Engine) Writes() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.writes
+}
+
+// Peek returns the first undelivered message of id.
+func (e *Engine) Peek(id string) (string, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	en := e.entries[id]
+	if en == nil || len(en.Pending) == 0 {
+		return "", false
+	}
+	return en.Pending[0], true
+}

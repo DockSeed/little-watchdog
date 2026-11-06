@@ -320,3 +320,15 @@ func TestMain(m *testing.M) {
 	os.RemoveAll(d)
 	os.Exit(code)
 }
+
+// SetClock replaces the clock of the app and its current clients.
+func (a *App) SetClock(c clock.Clock) {
+	a.Clk, a.TG.Clk, a.DM.Clk = c, c, c
+}
+
+// Cycle is Check, Deliver and PingDeadman in turn.
+func (a *App) Cycle(ctx context.Context) {
+	a.Check(ctx)
+	a.Deliver(ctx)
+	a.PingDeadman(ctx)
+}

@@ -137,11 +137,6 @@ func (a *App) Reload() {
 	}
 }
 
-// SetClock replaces the clock of the app and its current clients.
-func (a *App) SetClock(c clock.Clock) {
-	a.Clk, a.TG.Clk, a.DM.Clk = c, c, c
-}
-
 // LoadState restores the state file for the current check set.
 func (a *App) LoadState() {
 	cfg, cs, _, _ := a.cur()
@@ -378,13 +373,6 @@ func (a *App) PingDeadman(ctx context.Context) {
 	if dm.Cycle(ctx, a.probe) {
 		a.Log.Printf("warning: %d Telegram sends failed in a row, dead-man switch told /fail", deadman.Threshold)
 	}
-}
-
-// Cycle is Check, Deliver and PingDeadman in turn.
-func (a *App) Cycle(ctx context.Context) {
-	a.Check(ctx)
-	a.Deliver(ctx)
-	a.PingDeadman(ctx)
 }
 
 // lateAfter is how long after its event a message may arrive before it says so.

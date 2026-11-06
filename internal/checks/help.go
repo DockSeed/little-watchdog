@@ -6,7 +6,7 @@ package checks
 // Kind is the kind of a failure; it picks the "what to do" hint. "" has none.
 type Kind string
 
-// Failure kinds. Plain and the checks set them; Help turns them into a hint.
+// Failure kinds. PlainKind and the checks set them; Help turns them into a hint.
 const (
 	KindRefused     Kind = "refused"     // nothing listens on the port
 	KindBlocked     Kind = "blocked"     // fast EHOSTUNREACH: firewall REJECT, or no route

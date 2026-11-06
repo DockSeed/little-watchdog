@@ -175,13 +175,6 @@ const refreshEvery = 10 * time.Minute
 // (a flapping check); changes of the reported state and messages are written at once.
 const counterEvery = 5 * time.Minute
 
-// Writes counts write rounds; each writes the state file and its fine history.
-func (e *Engine) Writes() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.writes
-}
-
 // SaveIfDue writes only when something that matters changed or the file is older than refreshEvery.
 func (e *Engine) SaveIfDue(path string, now time.Time) error {
 	e.mu.Lock()
@@ -533,17 +526,6 @@ func (e *Engine) Queue() (q []Queued) {
 	}
 	sort.SliceStable(q, func(i, j int) bool { return q[i].ID < q[j].ID })
 	return q
-}
-
-// Peek returns the first undelivered message of id.
-func (e *Engine) Peek(id string) (string, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	en := e.entries[id]
-	if en == nil || len(en.Pending) == 0 {
-		return "", false
-	}
-	return en.Pending[0], true
 }
 
 // pop removes the first pending message of id equal to text. Matching by text and

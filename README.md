@@ -1,37 +1,24 @@
 # little-watchdog
 
-Watches web pages, ports, hosts and its own machine, and tells you on Telegram
-when something goes down or comes back. A dead-man's-switch tells you when the
-watchdog itself stops. One static binary, about 10 MB of RAM (measured with a
-handful of checks, 15 MB with 40), no web interface, no open port. Linux with
-systemd. For homelabs, not for critical infrastructure.
-Unofficial; not affiliated with Telegram or Healthchecks.io.
+A small watchdog for your homelab. It checks your machines and services once a
+minute and tells you on Telegram when one stops answering, and again when it is
+back.
 
-```text
- little-wd  › Status                                          homelab  1 FAIL  
-╭─────────────────────────────────── Status ───────────────────────────────────╮
-│    State   Check         Type   Last result                 Checked  Since   │
-│  This machine                                                                │
-│    [OK]    cpu           cpu    7% (15m avg)                07:19    06:58   │
-│    [OK]    memory        mem    61% available               07:19    06:58   │
-│    [OK]    disk /        disk   73% free                    07:19    06:58   │
-│    [OK]    temperature   temp   46.2 C                      07:19    06:58   │
-│  Services                                                                    │
-│    [OK]    nextcloud     http   web 200, 41 ms              07:19    06:58   │
-│    [FAIL]  photos        http   connection refused, nothi~  07:19    07:09   │
-│    [OK]    ssh           tcp    port open, 1 ms             07:19    06:58   │
-│    [OK]    nas           host   port open, 2 ms             07:19    06:58   │
-╰──────────────────────────────────────────────────────────────────────────────╯
- cpu: OK since 06:58. No Telegram message yet.
-```
+![Status screen of little-wd: twelve checks, the check Photos failing](docs/images/status.png)
 
-On a terminal of 120 columns or more the menu and Status get a side panel:
-in the menu every failing or unstable check with since when and why (or one
-line that all is OK), in Status the selected check; below it load, PSI, uptime
-and the last 24 hours as curves. little-wd's own RAM and disk writes stand in the menu's bottom line.
-From 160 columns the screen stays 160 wide and sits in the middle.
+- **Set up in the terminal.** `little-wd` is a full-screen program: type an
+  address, done. No web interface, no open port.
+- **Watches** pings, web pages, ports, and its own machine (disk, memory,
+  temperature, CPU).
+- **Tells you** on Telegram. A dead-man's-switch (Healthchecks.io) tells you
+  when the watchdog itself stops.
+- **Small.** One static binary, about 10 MB of RAM (measured with a handful of
+  checks, 15 MB with 40). Linux with systemd.
 
-## Install
+For homelabs, not for critical infrastructure. Unofficial; not affiliated with
+Telegram or Healthchecks.io.
+
+## Quick start
 
 On Debian, Ubuntu or Raspberry Pi OS:
 
@@ -40,19 +27,23 @@ wget -q --show-progress https://github.com/DockSeed/little-watchdog/releases/dow
 sudo apt install ./little-watchdog_0.6.0_*.deb
 ```
 
-Answer `y` when it asks to add you to the group little-wd. Then log out and in
-again (close an SSH session completely, a new shell is not enough) and run
-`little-wd`. Nothing to build: the package holds the program.
-Next: the Telegram bot, see [docs/setup.md](docs/setup.md). It also shows how
-to check the download and set up the dead-man's-switch.
+1. Answer `y` when the installer asks to add you to the group `little-wd`.
+2. Log out and in again. Close an SSH session completely; a new shell is not
+   enough.
+3. Run `little-wd`. It greets you, asks for a first address, then sets up
+   Telegram.
 
-## How it works
+The full guide, with checking the download: [docs/setup.md](docs/setup.md).
 
-By default a check runs once a minute, reports after 3 failed rounds and gives
-the all-clear after 2 good rounds; change this under Settings in `little-wd`.
-Messages that cannot be sent wait and go out later. `/status` in the chat
-lists all checks. Tested with up to 1000 checks on a small arm64 board with 10%
-of one core and 32 MB RAM.
+## Documentation
+
+| | |
+|---|---|
+| [Setup guide](docs/setup.md) | Install, first check, Telegram, dead-man's-switch, several machines, update. |
+| [Using little-wd](docs/screens.md) | The screens, keys and screen sizes. |
+| [Configuration](docs/config.md) | Every config key, check options, limits, disk writes, the service. |
+| [Security](SECURITY.md) | What is protected, what is not, how to report a problem. |
+| [How we built it](docs/how-we-built-it.md) | Goals, choices, how it was tested. |
 
 ## Commands
 
@@ -64,8 +55,8 @@ of one core and 32 MB RAM.
 | `little-wd run` | The daemon; the systemd service starts it. |
 | `little-wd version` | Prints the version. |
 
-All take `-config PATH`; default `/etc/little-watchdog/little-watchdog.env`, or
-`$LITTLE_WATCHDOG_CONFIG`.
+All take `-config PATH`. Default: `/etc/little-watchdog/little-watchdog.env`,
+or `$LITTLE_WATCHDOG_CONFIG`.
 
 ## Build from source
 
@@ -80,6 +71,6 @@ scripts/build.sh 0.6.0      # all packages in ./dist, same bytes every time
 
 One human and AI coding agents (Claude). The agents wrote the code, the tests
 and the documentation; the human made the decisions. More:
-[how we built it](docs/how-we-built-it.md), [security](SECURITY.md).
+[how we built it](docs/how-we-built-it.md).
 
 MIT licence, see [LICENSE](LICENSE).

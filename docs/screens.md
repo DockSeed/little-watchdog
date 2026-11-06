@@ -52,7 +52,8 @@ until the all-clear.
 - **State**, **Last** result and **Target**.
 - **The last 30 minutes**: every measurement as a curve, failures in red, and
   one line on what came before the last failed try.
-- **The last 24 hours**: how often it answered and how fast.
+- **The last 24 hours**: how often it answered and how fast. With many checks
+  the history is shorter, see [Limits](config.md#limits).
 - **What to do**: a short hint for this kind of error, only while the check
   fails. Telegram does not repeat it.
 - When the last Telegram message for this check went out.
@@ -82,7 +83,7 @@ The panel shows:
 - in the menu: every failing or unstable check, with since when and why, or one
   line that all is OK;
 - in Status: the selected check, with how often it answered and how fast over
-  the last 24 hours;
+  the last 24 hours (shorter with many checks, see [Limits](config.md#limits));
 - below it, this machine: load, "waited" (how long tasks waited for CPU, RAM
   and disk, from the kernel's PSI), uptime, and the last 24 hours as curves of
   CPU, RAM, disk, temperature and waiting time.

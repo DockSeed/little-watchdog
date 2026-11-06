@@ -39,8 +39,8 @@ const (
 
 Commands:
   (none)   full-screen setup and status (needs a terminal)
-  run      run the daemon (the service does this)
-  status   show the state file as a table
+  run      run the watchdog (the service does this)
+  status   print the last results as a table
   check    run all checks once, print results, send nothing
   version  print the version
 
@@ -63,9 +63,9 @@ Exit status: 0 on quit, 1 on error, 2 without a terminal or on a bad option.
 
 	runHelp = `usage: little-wd run [-config PATH]
 
-Run the daemon in the foreground. The systemd service does this; run it by
-hand only to try something. SIGHUP re-reads the config, SIGINT and SIGTERM stop.
-Waits for a usable config instead of failing.
+Run the watchdog in the foreground. The systemd service does this; run it by
+hand only to try something. Waits for a usable config instead of failing.
+SIGHUP re-reads the config, SIGINT and SIGTERM stop it.
 
 Options:
 ` + configOpt + `
@@ -74,13 +74,13 @@ Exit status: 0 after SIGINT or SIGTERM, 1 on error, 2 on a bad option.
 
 	statusHelp = `usage: little-wd status [-config PATH]
 
-Print the state file as a table. Runs no check. Adds a STALE line when the
-daemon has not reported lately.
+Print the last results from the state file as a table. Runs no check. Adds a
+STALE line when the service has not reported lately.
 
 Options:
 ` + configOpt + `
-Exit status: 0 if the state was read (also when checks fail or the daemon is
-stale), 1 if the config or state cannot be read, 2 on a bad option.
+Exit status: 0 if the state was read (also when checks fail or STALE),
+1 if the config or state cannot be read, 2 on a bad option.
 `
 
 	checkHelp = `usage: little-wd check [-config PATH]
@@ -274,7 +274,7 @@ func cmdStatus(path string) error {
 	}
 	fmt.Print(state.Table(st.Entries, cfg.RecoverAfter, started, time.Now()))
 	if age, stale := state.Stale(cfg.StateFile, cfg.StaleAfter(), time.Now(), config.RAMStateFile()); stale {
-		fmt.Printf("\nSTALE: the daemon has not reported for %s (is little-watchdog running?)\n", age.Round(time.Second))
+		fmt.Printf("\nSTALE: the service has not reported for %s. Is it running? systemctl status little-watchdog\n", age.Round(time.Second))
 	}
 	return nil
 }

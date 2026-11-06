@@ -17,8 +17,8 @@ little\-wd \- small homelab watchdog with Telegram alarms
 .RB { version | \-\-version | \-h | \-\-help }
 .SH DESCRIPTION
 .B little\-wd
-watches web pages, TCP ports and hosts, and the machine it runs on.
-It sends a Telegram message when something changes.
+watches hosts (ping), web pages, TCP ports and the machine it runs on.
+It sends a Telegram message when a check fails and when it is back.
 The watching is done by a systemd service, which runs
 .BR "little\-wd run" ;
 the other commands set it up and show what it sees.
@@ -33,15 +33,15 @@ for the keys.
 Quitting does not stop the service.
 .TP
 .B run
-Run the daemon in the foreground.
+Run the watchdog in the foreground.
 The service does this; run it by hand only to try something.
 It waits for a usable config instead of failing.
 SIGHUP re-reads the config, SIGINT and SIGTERM stop it.
 .TP
 .B status
-Print the state file as a table.
+Print the last results from the state file as a table.
 Runs no check.
-Adds a STALE line when the daemon has not reported lately.
+Adds a STALE line when the service has not reported lately.
 .TP
 .B check
 Run every check once and print one line per check.
@@ -101,7 +101,7 @@ and the last 30 minutes of every measurement
 .RI ( state.json.fine ).
 Without
 .B RUNTIME_DIRECTORY
-(the daemon started by hand) both files lie next to the state file.
+(\fBlittle\-wd run\fR started by hand) both files lie next to the state file.
 .TP
 .I /usr/lib/systemd/system/little\-watchdog.service
 The unit (\fI/etc/systemd/system/\fR if installed from the tar.gz).
@@ -119,15 +119,15 @@ is not given.
 Absolute path of the runtime directory; systemd sets it for the service.
 If unset, the commands look in
 .IR /run/little\-watchdog ,
-and the daemon writes nothing there.
+and \fBrun\fR writes nothing there.
 .TP
 .B LITTLE_WATCHDOG_DEBUG
-If set, the daemon logs a few extra lines.
+If set, \fBrun\fR logs a few extra lines.
 .TP
 .BR GOMAXPROCS ", " GOMEMLIMIT
 For
 .BR run :
-if unset, the daemon uses one thread and a soft memory limit of 24 MiB.
+if unset, it uses one thread and a soft memory limit of 24 MiB.
 .TP
 .BR NO_COLOR ", " TERM ", " COLORTERM ", " LC_ALL ", " LC_CTYPE ", " LANG
 Colours and characters of the full-screen program.
@@ -141,7 +141,7 @@ Success.
 exits with 0 after SIGINT or SIGTERM.
 .B status
 exits with 0 whenever it could read the state,
-also when checks fail or the daemon is stale.
+also when checks fail or the service is STALE.
 .B check
 exits with 0 only if all checks are OK.
 .TP

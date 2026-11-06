@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-06
+
 ### Fixed
 
 - `mode=lenient` on an `http://` address that redirects to `https://` of the same host (nginx on

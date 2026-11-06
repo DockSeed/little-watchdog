@@ -307,3 +307,16 @@ func TestRunSavesStateOnShutdown(t *testing.T) {
 		t.Fatalf("no state saved on shutdown: %v", err)
 	}
 }
+
+// TestMain points RUNTIME_DIRECTORY at a directory that does not exist, so no test depends on
+// (or writes to) the /run/little-watchdog of the host it runs on.
+func TestMain(m *testing.M) {
+	d, err := os.MkdirTemp("", "lw-run-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("RUNTIME_DIRECTORY", filepath.Join(d, "run"))
+	code := m.Run()
+	os.RemoveAll(d)
+	os.Exit(code)
+}

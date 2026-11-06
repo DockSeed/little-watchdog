@@ -216,7 +216,7 @@ func TestSettingsStateInRAMSwitch(t *testing.T) {
 	if got := read(t, p); !strings.HasSuffix(got, "# keep\nSTATE_IN_RAM=yes\n") {
 		t.Fatalf("%q", got)
 	}
-	has(t, r.frame(), "The state now lives in RAM", "a reboot loses the history", "alarm may be sent", "is missing: the installed", "applies it within one interval")
+	has(t, r.frame(), "The state now lives in RAM", "a reboot loses the history", "alarm may be sent", "missing: the installed", "applies it within one interval")
 	r.send("\x03")
 	r.finish()
 

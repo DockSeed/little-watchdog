@@ -56,7 +56,8 @@ The full guide, with checking the download: [docs/setup.md](docs/setup.md).
 | `little-wd version` | Prints the version. |
 
 All take `-config PATH`. Default: `/etc/little-watchdog/little-watchdog.env`,
-or `$LITTLE_WATCHDOG_CONFIG`.
+or `$LITTLE_WATCHDOG_CONFIG`. `little-wd COMMAND -h` helps with one command;
+`man little-wd` lists files, environment and exit codes.
 
 ## Build from source
 

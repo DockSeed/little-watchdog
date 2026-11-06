@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -30,58 +31,142 @@ import (
 
 var version = "0.0.0~dev" // set by scripts/build.sh
 
-const usage = `usage: little-wd [command] [-config PATH]
+// Help texts. docs/little-wd.1 says the same; TestHelpMatchesTheManpage keeps them from drifting.
+const (
+	configOpt = "  -config PATH  config file (default " + config.DefaultPath + ",\n                or $LITTLE_WATCHDOG_CONFIG)\n"
 
+	usage = `usage: little-wd [command] [-config PATH]
+
+Commands:
   (none)   full-screen setup and status (needs a terminal)
-  run      run the daemon
+  run      run the daemon (the service does this)
   status   show the state file as a table
   check    run all checks once, print results, send nothing
-  version  print version
+  version  print the version
 
-Default config: ` + config.DefaultPath + ` (or $LITTLE_WATCHDOG_CONFIG)
+Options:
+` + configOpt + `  -h, --help    show this help; "little-wd COMMAND -h" helps with a command
+  --version     print the version
+
+More: man little-wd
 `
 
-func main() {
-	if len(os.Args) < 2 || strings.HasPrefix(os.Args[1], "-config") || strings.HasPrefix(os.Args[1], "--config") {
-		fs := flag.NewFlagSet("little-wd", flag.ExitOnError)
-		cfgFlag := fs.String("config", "", "config file")
-		fs.Parse(os.Args[1:])
-		if !setup.IsTerminal(os.Stdin.Fd()) || !setup.IsTerminal(os.Stdout.Fd()) {
-			fmt.Fprint(os.Stderr, usage)
-			os.Exit(2)
-		}
-		if err := cmdTUI(config.Resolve(*cfgFlag)); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
-	}
-	cmd := os.Args[1]
-	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
-	cfgFlag := fs.String("config", "", "config file")
-	fs.Parse(os.Args[2:])
-	path := config.Resolve(*cfgFlag)
+	tuiHelp = `usage: little-wd [-config PATH]
 
+Open the full-screen program: see the checks and change the config. Needs a
+terminal. Quitting does not stop the service. Press ? inside for the keys.
+
+Options:
+` + configOpt + `
+Exit status: 0 on quit, 1 on error, 2 without a terminal or on a bad option.
+`
+
+	runHelp = `usage: little-wd run [-config PATH]
+
+Run the daemon in the foreground. The systemd service does this; run it by
+hand only to try something. SIGHUP re-reads the config, SIGINT and SIGTERM stop.
+Waits for a usable config instead of failing.
+
+Options:
+` + configOpt + `
+Exit status: 0 after SIGINT or SIGTERM, 1 on error, 2 on a bad option.
+`
+
+	statusHelp = `usage: little-wd status [-config PATH]
+
+Print the state file as a table. Runs no check. Adds a STALE line when the
+daemon has not reported lately.
+
+Options:
+` + configOpt + `
+Exit status: 0 if the state was read (also when checks fail or the daemon is
+stale), 1 if the config or state cannot be read, 2 on a bad option.
+`
+
+	checkHelp = `usage: little-wd check [-config PATH]
+
+Run every check once and print one line per check. Sends nothing to Telegram
+and writes no state. Takes about a second longer when CPU is checked.
+
+Options:
+` + configOpt + `
+Exit status: 0 if all checks are OK, 1 if a check fails or the config cannot
+be read, 2 on a bad option.
+`
+
+	versionHelp = `usage: little-wd version
+
+Print the version.
+`
+)
+
+// commands maps a command to its help text; "" is the full-screen program.
+var commands = map[string]string{"": tuiHelp, "run": runHelp, "status": statusHelp, "check": checkHelp, "version": versionHelp}
+
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run is main without the process: it returns the exit status.
+func run(args []string, out, errw io.Writer) int {
+	cmd := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-config") && !strings.HasPrefix(args[0], "--config") {
+		cmd, args = args[0], args[1:]
+	}
+	switch cmd {
+	case "help", "-h", "--help":
+		fmt.Fprint(out, usage)
+		return 0
+	case "-version", "--version":
+		cmd = "version"
+	}
+	help, ok := commands[cmd]
+	if !ok {
+		fmt.Fprintf(errw, "unknown command: %s\n\n%s", cmd, usage)
+		return 2
+	}
+	path, code, done := parseFlags(cmd, help, args, out, errw)
+	if done {
+		return code
+	}
 	var err error
 	switch cmd {
+	case "":
+		if !setup.IsTerminal(os.Stdin.Fd()) || !setup.IsTerminal(os.Stdout.Fd()) {
+			fmt.Fprint(errw, "little-wd needs a terminal.\n\n"+usage)
+			return 2
+		}
+		err = cmdTUI(path)
 	case "run":
 		err = cmdRun(path)
 	case "status":
 		err = cmdStatus(path)
 	case "check":
 		err = cmdCheck(path)
-	case "version", "-version", "--version":
-		fmt.Println("little-wd", version)
-	case "help", "-h", "--help":
-		fmt.Print(usage)
-	default:
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+	case "version":
+		fmt.Fprintln(out, "little-wd", version)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, explain(path, err))
-		os.Exit(1)
+		fmt.Fprintln(errw, explain(path, err))
+		return 1
 	}
+	return 0
+}
+
+// parseFlags reads -config. done is true when the command is already finished: help was
+// asked for (code 0) or an option is wrong (code 2, with that command's help).
+func parseFlags(cmd, help string, args []string, out, errw io.Writer) (path string, code int, done bool) {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	cfgFlag := fs.String("config", "", "config file")
+	err := fs.Parse(args)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(out, help)
+		return "", 0, true
+	case err != nil:
+		fmt.Fprintf(errw, "%s\n\n%s", strings.TrimSpace("little-wd "+cmd+": "+err.Error()), help)
+		return "", 2, true
+	}
+	return config.Resolve(*cfgFlag), 0, false
 }
 
 // explain turns a command's error into what the user sees: a missing config is

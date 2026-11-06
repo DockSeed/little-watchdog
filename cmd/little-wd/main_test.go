@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/fs"
@@ -32,6 +33,63 @@ func TestCheckLineStripsControlCharacters(t *testing.T) {
 	l := checkLine(stub{}, checks.Result{Status: checks.FAIL, Detail: "bad\x1b[31m\n" + strings.Repeat("z", 300)})
 	if strings.ContainsAny(l, "\x1b\n") || len([]rune(l)) > 300 {
 		t.Fatalf("%q", l)
+	}
+}
+
+func TestHelpAndUsageErrors(t *testing.T) {
+	for _, tt := range []struct {
+		args     []string
+		code     int
+		out, err string // start of stdout, of stderr
+	}{
+		{[]string{"--help"}, 0, "usage: little-wd [command]", ""},
+		{[]string{"help"}, 0, "usage: little-wd [command]", ""},
+		{[]string{"status", "-h"}, 0, "usage: little-wd status", ""},
+		{[]string{"check", "--help"}, 0, "usage: little-wd check", ""},
+		{[]string{"run", "-h"}, 0, "usage: little-wd run", ""},
+		{[]string{"-config", "x", "-h"}, 0, "usage: little-wd [-config PATH]", ""},
+		{[]string{"version", "-h"}, 0, "usage: little-wd version", ""},
+		{[]string{"--version"}, 0, "little-wd ", ""},
+		{[]string{"bogus"}, 2, "", "unknown command: bogus\n\nusage: little-wd [command]"},
+		{[]string{"status", "-x"}, 2, "", "little-wd status: flag provided but not defined: -x\n\nusage: little-wd status"},
+		{[]string{"check", "-config"}, 2, "", "little-wd check: flag needs an argument: -config"},
+	} {
+		var out, errw bytes.Buffer
+		code := run(tt.args, &out, &errw)
+		if code != tt.code || !strings.HasPrefix(out.String(), tt.out) || !strings.HasPrefix(errw.String(), tt.err) ||
+			(tt.out == "" && out.Len() > 0) || (tt.err == "" && errw.Len() > 0) {
+			t.Errorf("%v: code %d\nstdout %q\nstderr %q", tt.args, code, out.String(), errw.String())
+		}
+	}
+}
+
+// Every command and option is in the overview, in its own help and in the manual page.
+func TestHelpMatchesTheManpage(t *testing.T) {
+	man, err := os.ReadFile("../../docs/little-wd.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"-config", "--help", "--version", "-h"} {
+		if !strings.Contains(usage, w) || !strings.Contains(strings.ReplaceAll(string(man), `\-`, "-"), w) {
+			t.Errorf("option %s missing in the overview or the manual page", w)
+		}
+	}
+	for cmd, help := range commands {
+		if cmd != "" && !strings.Contains(usage, "\n  "+cmd+" ") {
+			t.Errorf("command %q missing in the overview", cmd)
+		}
+		if cmd != "" && !strings.Contains(string(man), "\n.B "+cmd+"\n") {
+			t.Errorf("command %q has no entry in the manual page", cmd)
+		}
+		if !strings.HasPrefix(help, "usage: little-wd") || !strings.Contains(usage, "man little-wd") {
+			t.Errorf("help of %q: %q", cmd, help)
+		}
+	}
+	// the exit codes the help promises are the ones the manual page lists
+	for _, c := range []string{"\n.B 0\n", "\n.B 1\n", "\n.B 2\n"} {
+		if !strings.Contains(string(man), c) {
+			t.Errorf("manual page lacks exit status %q", c)
+		}
 	}
 }
 

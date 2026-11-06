@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Manual page `man little-wd`, in the `.deb` and the tar.gz (`install.sh` installs it to
+  `/usr/local/share/man/man1`, `--uninstall` removes it).
+
 ### Fixed
 
 - The heartbeat (`state.json.alive`) and the fine history (`state.json.fine`) are written to
@@ -25,6 +30,9 @@
 
 ### Changed
 
+- Each command has its own help (`little-wd status -h`) instead of the raw option list; an
+  unknown command or option says so first, then shows the help, and exits with 2. The overview
+  lists `--version` and `man little-wd`.
 - The unit has no start limit any more. A crash loop is slowed down (10 s growing to 5 min)
   instead of ending with the service "failed" for good. Needs systemd 254 for the growing
   pause; older versions keep 10 s.

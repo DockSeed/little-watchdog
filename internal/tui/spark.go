@@ -16,8 +16,6 @@ import (
 // cells (30 min down to 4 h each), the widest that fits, so no cell mixes half a bucket.
 const (
 	histCells = 144
-	sparkMax  = 48
-	sparkMin  = 6
 )
 
 var sparkSizes = [...]int{48, 36, 24, 18, 16, 12, 9, 8, 6}

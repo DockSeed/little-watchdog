@@ -291,13 +291,7 @@ func plural(n int, one, many string) string {
 
 func every(d time.Duration) string { return checks.Compact(d) }
 
-// menuValue is the live value next to a menu item; it needs no network.
-func (m *model) menuValue(it string) string {
-	v, _ := m.menuVal(it)
-	return v
-}
-
-// menuVal is menuValue and its colour (sBg = plain).
+// menuVal is the live value next to a menu item (it needs no network) and its colour (sBg = plain).
 func (m *model) menuVal(it string) (string, sty) {
 	c := m.snap.cfg
 	if it == "Quit" {

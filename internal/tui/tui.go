@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -72,9 +71,9 @@ var menuItems = []string{"Status", "Add check", "Remove check", "System checks",
 func locked(item string, md mode) bool { return md != modeFull && item != "Status" && item != "Quit" }
 
 type kindSpec struct {
-	name, typ string
-	labels    []string
-	hints     []string
+	name   string
+	labels []string
+	hints  []string
 }
 
 // form is a dialog with an optional kind choice, text fields and buttons.
@@ -188,8 +187,6 @@ type model struct {
 	ev         chan func(*model)
 	done       chan struct{}
 }
-
-var nameRe = regexp.MustCompile(`^[A-Z0-9_]+$`)
 
 // dirWritable: can this user create files where path lives (nearest existing parent)?
 func dirWritable(path string) bool {

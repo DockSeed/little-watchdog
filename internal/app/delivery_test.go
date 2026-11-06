@@ -72,10 +72,8 @@ func TestBundleSplitsAt4096(t *testing.T) {
 	var buf bytes.Buffer
 	a, s := newApp(t, srv.URL, "", &buf)
 	a.Checks = nil
-	var all []*scripted
 	for i := 0; i < 30; i++ {
 		c := addCheck(a, "http:c"+strings.Repeat("x", 3)+string(rune('a'+i%26))+string(rune('a'+i/26)))
-		all = append(all, c)
 		c.fail(strings.Repeat("d", 190))
 	}
 	_ = s

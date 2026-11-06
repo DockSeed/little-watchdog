@@ -4,48 +4,9 @@
 package setup
 
 import (
-	"fmt"
-	"os"
 	"syscall"
 	"unsafe"
 )
-
-// ReadSecret reads a line from the terminal with echo disabled. It uses the
-// termios ioctls directly (stdlib only; no golang.org/x/term needed).
-// If stdin is not a terminal, it reads a plain line (for piping).
-func ReadSecret(prompt string) (string, error) {
-	fd := os.Stdin.Fd()
-	fmt.Fprint(os.Stderr, prompt)
-	var t syscall.Termios
-	_, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TCGETS, uintptr(unsafe.Pointer(&t)))
-	if e == 0 {
-		noecho := t
-		noecho.Lflag &^= syscall.ECHO
-		if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TCSETS, uintptr(unsafe.Pointer(&noecho))); e != 0 {
-			return "", e
-		}
-		defer syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TCSETS, uintptr(unsafe.Pointer(&t)))
-	}
-	// Read byte-wise so no input is buffered away from the later prompts.
-	var line []byte
-	b := make([]byte, 1)
-	for {
-		n, err := os.Stdin.Read(b)
-		if n == 1 {
-			if b[0] == '\n' {
-				break
-			}
-			line = append(line, b[0])
-		}
-		if err != nil {
-			if len(line) > 0 {
-				break
-			}
-			return "", err
-		}
-	}
-	return string(line), nil
-}
 
 // MakeRaw switches fd to raw mode (no echo, no line buffering, no signals) and returns the restorer.
 func MakeRaw(fd uintptr) (restore func(), err error) {

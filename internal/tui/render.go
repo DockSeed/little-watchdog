@@ -1240,6 +1240,7 @@ func (m *model) drawHelp(fr *frame) {
 		k("Tab", "next field or button"),
 		k("Ctrl-R", "show or hide a secret you type"),
 		k("Space", "System checks: turn a check on or off"),
+		k("a", "Status: add a check on this host"),
 		k("Esc", "back to the menu, close a window"),
 		k("Q", "quit in the menu, back elsewhere"),
 	}
@@ -1248,8 +1249,7 @@ func (m *model) drawHelp(fr *frame) {
 		line("result yet. back 1/2 = 1 of 2 good tries after a FAIL.", sDlg),
 		line("Checked: time of the last result. Since: when that state", sDlg),
 		line("began (an OK at most since the daemon start).", sDlg),
-		line("Settings: check interval, alarm and all-clear rounds, timeout.", sDlg),
-		line("Changes apply after you confirm, within one interval.", sDlg),
+		line("Settings changes apply after you confirm, within one interval.", sDlg),
 	}
 	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only
 		rows = append(rows, text...)

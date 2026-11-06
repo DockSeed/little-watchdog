@@ -586,7 +586,7 @@ func TestHelp80(t *testing.T) {
 	r.wait("[ Close ]")
 	f := r.frame()
 	check80(t, f)
-	has(t, f, "Keys", "move", "Esc", "Since: when that state", "at most since the daemon start")
+	has(t, f, "Keys", "move", "Esc", "Status: add a check on this host", "Since: when that state", "at most since the daemon start")
 	r.send("\x1b")
 	r.wait("↑↓ move  Enter open")
 	lacks(t, r.frame(), "[ Close ]")

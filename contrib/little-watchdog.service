@@ -5,9 +5,8 @@
 Description=little-watchdog homelab watchdog
 After=network-online.target time-sync.target
 Wants=network-online.target time-sync.target
-# a watchdog that gives up is worse than one that keeps trying: no start limit, only a growing
-# pause (10 s to 5 min in 5 steps; systemd before 254 ignores the two Restart lines further down)
-StartLimitIntervalSec=0
+StartLimitIntervalSec=10min
+StartLimitBurst=5
 
 [Service]
 ExecStart=/usr/bin/little-wd run
@@ -17,8 +16,6 @@ ExecReload=/bin/kill -HUP $MAINPID
 Environment=GODEBUG=disablethp=1
 Restart=always
 RestartSec=10
-RestartSteps=5
-RestartMaxDelaySec=5min
 
 # User and group come from sysusers.d/little-wd.conf; /etc/little-watchdog (setgid, group
 # little-wd) from tmpfiles.d/little-wd.conf. The daemon only reads the config, so

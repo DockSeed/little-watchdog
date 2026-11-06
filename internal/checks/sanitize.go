@@ -13,10 +13,19 @@ import (
 // MaxText is the longest detail or value that is stored, sent or shown.
 const MaxText = 200
 
-// Clean replaces control characters (C0, DEL, C1) so foreign text cannot drive a terminal.
+// Hidden: a format character that reorders or hides text without drawing anything: Arabic
+// letter mark, zero-width and direction marks (U+200B-200F), line and paragraph separators,
+// bidi embeddings and overrides (U+202A-202E), isolates (U+2066-2069), byte order mark.
+func Hidden(r rune) bool {
+	return r == 0x061c || (r >= 0x200b && r <= 0x200f) || (r >= 0x2028 && r <= 0x202e) ||
+		(r >= 0x2066 && r <= 0x2069) || r == 0xfeff
+}
+
+// Clean replaces control characters (C0, DEL, C1) and Hidden ones so foreign text can neither
+// drive a terminal nor turn around what the reader sees.
 func Clean(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || Hidden(r) {
 			return ' '
 		}
 		return r

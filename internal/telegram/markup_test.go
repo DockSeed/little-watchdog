@@ -46,6 +46,9 @@ func TestEscCleansControlCharsButKeepsNewlineAndTab(t *testing.T) {
 	if got := Esc("a\x1bb\x7fc\u0085d\te\nf & <g> ü"); got != "a b c d\te\nf &amp; &lt;g&gt; ü" {
 		t.Fatalf("%q", got)
 	}
+	if got := Esc("a\u202eb\u200bc\u2066d"); got != "a b c d" {
+		t.Fatalf("%q", got)
+	}
 	if got := Esc("plain"); got != "plain" {
 		t.Fatal(got)
 	}

@@ -25,6 +25,12 @@ func TestSanitize(t *testing.T) {
 	if Clean("ok ü") != "ok ü" {
 		t.Fatal("changed clean text")
 	}
+	// bidi overrides, isolates, zero-width and line separators reorder or hide text
+	for _, r := range "\u200b\u200e\u200f\u2028\u2029\u202a\u202e\u2066\u2069\ufeff\u061c" {
+		if got := Clean("a" + string(r) + "b"); got != "a b" {
+			t.Fatalf("%U left in %q", r, got)
+		}
+	}
 }
 
 func TestFingerprints(t *testing.T) {

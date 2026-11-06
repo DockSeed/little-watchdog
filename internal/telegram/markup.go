@@ -6,16 +6,19 @@ package telegram
 import (
 	"strings"
 	"unicode"
+
+	"github.com/DockSeed/little-watchdog/internal/checks"
 )
 
 // Esc makes foreign or dynamic text safe for a Telegram HTML message. It does two
-// things, in one pass: control characters (C0, DEL, C1) except newline and tab become
+// things, in one pass: control characters (C0, DEL, C1) and bidi or zero-width marks
+// (checks.Hidden) except newline and tab become
 // spaces, then & < > are escaped. Messages are Telegram HTML: every such part goes
 // through Esc, B or Code, only our own tags stay raw.
 func Esc(s string) string {
 	var sb strings.Builder
 	for i, r := range s {
-		ctl := (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+		ctl := (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f || (r >= 0x80 && r <= 0x9f) || checks.Hidden(r)
 		if !ctl && r != '&' && r != '<' && r != '>' {
 			if sb.Len() > 0 {
 				sb.WriteRune(r)

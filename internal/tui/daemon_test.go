@@ -38,6 +38,16 @@ func TestHeaderAndStatusSayStaleDaemon(t *testing.T) {
 	has(t, r.frame(), "Status      ", "daemon not running")
 	r.send("\x03")
 	r.finish()
+
+	// the daemon since 0.6.1 beats in the runtime directory, whatever the state file's place
+	ram := t.TempDir()
+	t.Setenv("RUNTIME_DIRECTORY", ram)
+	state.Beat(filepath.Join(ram, "state.json"), time.Now())
+	r = start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: sized})
+	r.wait("Status      ")
+	lacks(t, r.frame(), "daemon not running")
+	r.send("\x03")
+	r.finish()
 }
 
 func TestSaveRefusedWhenFileChangedUnderneath(t *testing.T) {

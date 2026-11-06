@@ -614,13 +614,20 @@ func (c *Config) OtherStateFile() string {
 	return RAMStateFile()
 }
 
-// RAMStateFile is the state file in RAM mode: the unit's RuntimeDirectory= (systemd
-// exports it as RUNTIME_DIRECTORY to the daemon), else /run/little-watchdog.
-func RAMStateFile() string {
-	dir := "/run/little-watchdog"
+// RuntimeDir is the unit's RuntimeDirectory= (systemd exports it as RUNTIME_DIRECTORY to the
+// daemon). set is false without it: readers (the UI) then look in /run/little-watchdog, but the
+// daemon writes nowhere below it, because that directory belongs to the installed service.
+func RuntimeDir() (dir string, set bool) {
 	if v := os.Getenv("RUNTIME_DIRECTORY"); strings.HasPrefix(v, "/") {
-		dir = strings.TrimRight(v, "/")
+		return strings.TrimRight(v, "/"), true
 	}
+	return "/run/little-watchdog", false
+}
+
+// RAMStateFile is the state file in RAM mode, and the name the heartbeat and the fine history
+// take their place from (<it>.alive, <it>.fine) in either mode.
+func RAMStateFile() string {
+	dir, _ := RuntimeDir()
 	return dir + "/state.json"
 }
 

@@ -188,7 +188,7 @@ func cmdStatus(path string) error {
 		started = st.Foot.Started
 	}
 	fmt.Print(state.Table(st.Entries, cfg.RecoverAfter, started, time.Now()))
-	if age, stale := state.Stale(cfg.StateFile, cfg.StaleAfter(), time.Now()); stale {
+	if age, stale := state.Stale(cfg.StateFile, cfg.StaleAfter(), time.Now(), config.RAMStateFile()); stale {
 		fmt.Printf("\nSTALE: the daemon has not reported for %s (is little-watchdog running?)\n", age.Round(time.Second))
 	}
 	return nil

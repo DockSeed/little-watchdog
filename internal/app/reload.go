@@ -140,7 +140,11 @@ func (a *App) apply(nc *config.Config) {
 // removeState deletes an old state file, its heartbeat and fine history, but only regular files: a symlink
 // planted there is left alone.
 func removeState(p string) {
-	for _, f := range []string{p, p + state.BeatSuffix, p + state.FineSuffix} {
+	files := []string{p}
+	if p != config.RAMStateFile() { // there the heartbeat and the fine history are live
+		files = append(files, p+state.BeatSuffix, p+state.FineSuffix)
+	}
+	for _, f := range files {
 		if st, err := os.Lstat(f); err == nil && st.Mode().IsRegular() {
 			os.Remove(f)
 		}
@@ -151,7 +155,14 @@ func removeState(p string) {
 // is written to the new place at once (the UI reads there). It reports whether that worked; if
 // not, the caller keeps the old place, so the daemon never ends up writing neither.
 func (a *App) moveState(from, to string) bool {
-	if err := a.Eng.Save(to); err != nil {
+	var err error
+	if to == config.RAMStateFile() {
+		err = needRuntimeDir()
+	}
+	if err == nil {
+		err = a.Eng.Save(to)
+	}
+	if err != nil {
 		hint := ""
 		if to == config.RAMStateFile() {
 			hint = "; update the package: the unit has no RuntimeDirectory"
@@ -233,7 +244,7 @@ func (a *App) flushNotes(ctx context.Context) {
 func WaitConfig(ctx context.Context, path, stateFile string, l *log.Logger, poll time.Duration, tell func(token string, chat int64, api, text string)) (*config.Config, FileSig, error) {
 	told, last := false, ""
 	for {
-		state.Beat(config.LenientStateFile(path, stateFile), time.Now())
+		beat(config.LenientStateFile(path, stateFile), time.Now())
 		sig := StatConfig(path) // before Load, so a change in between is not missed
 		cfg, err := config.Load(path, true)
 		if err == nil {

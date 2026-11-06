@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DockSeed/little-watchdog/internal/checks"
+	"github.com/DockSeed/little-watchdog/internal/config"
 	"github.com/DockSeed/little-watchdog/internal/state"
 )
 
@@ -26,7 +27,10 @@ func (m *model) readFine(s *snapshot) {
 		s.fine, s.fineHint = nil, false
 		return
 	}
-	p := statePath(s.cfg) + state.FineSuffix
+	p := config.RAMStateFile() + state.FineSuffix // the daemon's place; next to the state file where it cannot write there
+	if _, err := os.Stat(p); err != nil {
+		p = statePath(s.cfg) + state.FineSuffix
+	}
 	sig := statSig(p)
 	if sig == m.fineSig && sig != (stateSig{}) {
 		return

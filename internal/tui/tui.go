@@ -939,7 +939,7 @@ func (m *model) daemonDown() bool {
 	if c == nil {
 		return false
 	}
-	_, stale := state.Stale(statePath(c), c.StaleAfter(), time.Now())
+	_, stale := daemonAge(c, time.Now())
 	return stale
 }
 

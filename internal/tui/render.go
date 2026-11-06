@@ -140,22 +140,31 @@ func (m *model) refresh() {
 	if s.cfg != nil {
 		s.pairing = config.PairingActive(m.file.Path, time.Now())
 		s.linked, _ = config.LinkedAt(m.file.Path)
-		s.age, s.stale = state.Stale(statePath(s.cfg), s.cfg.StaleAfter(), time.Now())
+		s.age, s.stale = daemonAge(s.cfg, time.Now())
 	}
 	m.snap = s
 }
 
 // statePath is the state file to read. Right after a switch between disk and RAM the daemon
-// still writes to the other place until its next cycle moves the state: while the new place
-// has no live heartbeat and the other one has, that one is read, so no "daemon not running".
+// still writes to the other place until its next cycle moves the state (and removes the old
+// file): while the other file is the newer one, that one is read, so no "daemon not running".
 func statePath(c *config.Config) string {
-	now := time.Now()
-	if _, stale := state.Stale(c.StateFile, c.StaleAfter(), now); stale && c.OtherStateFile() != "" {
-		if _, st := state.Stale(c.OtherStateFile(), c.StaleAfter(), now); !st {
-			return c.OtherStateFile()
-		}
+	o := c.OtherStateFile()
+	if o == "" {
+		return c.StateFile
+	}
+	mine, other := statSig(c.StateFile), statSig(o)
+	if other != (stateSig{}) && (mine == (stateSig{}) || other.mtime.After(mine.mtime)) {
+		return o
 	}
 	return c.StateFile
+}
+
+// daemonAge is the age of the daemon's heartbeat and whether it is too old. The heartbeat sits
+// in the runtime directory (RAM), or next to the state file (either place, right after a
+// switch) where the daemon cannot write there.
+func daemonAge(c *config.Config, now time.Time) (time.Duration, bool) {
+	return state.Stale(c.StateFile, c.StaleAfter(), now, config.RAMStateFile(), c.OtherStateFile())
 }
 
 type stateSig struct {

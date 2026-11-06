@@ -105,6 +105,9 @@ func New(cfg *config.Config, out io.Writer) *App {
 	a.Host = checks.Host()
 	a.Eng = state.NewEngine(cfg.FailAfter, cfg.RecoverAfter)
 	a.Eng.Host = a.Host
+	if _, set := config.RuntimeDir(); set {
+		a.Eng.FinePath = config.RAMStateFile() + state.FineSuffix
+	}
 	a.TG = telegram.New(cfg.APIURL, cfg.Token, sendTimeout)
 	a.TG.Log = l.Printf
 	a.DM = a.newDM(cfg)
@@ -149,7 +152,11 @@ func (a *App) LoadState() {
 	if w := a.Eng.Load(cfg.StateFile, valid); w != "" {
 		a.Log.Printf("warning: %s", w)
 	}
-	a.Eng.LoadFine(cfg.StateFile+state.FineSuffix, valid, a.Now())
+	for _, p := range []string{a.Eng.FinePath, cfg.StateFile + state.FineSuffix} { // RAM, else the disk fallback
+		if p != "" && a.Eng.LoadFine(p, valid, a.Now()) {
+			break
+		}
+	}
 	if cfg.DeadmanURL == "" {
 		a.Eng.ClearDeadman()
 	}
@@ -162,7 +169,8 @@ func (a *App) fallbackToDisk() {
 	if !cfg.StateInRAM || cfg.DiskState == "" {
 		return
 	}
-	if err := state.Writable(cfg.StateFile); err != nil {
+	err := ramWritable(cfg.StateFile)
+	if err != nil {
 		a.Log.Printf("warning: STATE_IN_RAM=yes but %v; update the package: the unit has no RuntimeDirectory. Using %s", err, cfg.DiskState)
 		a.mu.Lock()
 		a.Cfg.StateFile = cfg.DiskState
@@ -274,11 +282,36 @@ func (a *App) endCycle() {
 	a.tgMu.Unlock()
 	a.stateMu.Lock()
 	cfg, _, _, _ := a.cur()
-	e := state.Beat(cfg.StateFile, a.Now())
+	e := beat(cfg.StateFile, a.Now())
 	a.stateMu.Unlock()
 	if e != nil && a.debug {
 		a.Log.Printf("debug: heartbeat: %v", e)
 	}
+}
+
+// ramWritable checks the place of the RAM state file. Without RUNTIME_DIRECTORY (not started by
+// the unit) the daemon writes nowhere below /run/little-watchdog: it belongs to the service.
+func ramWritable(stateFile string) error {
+	if err := needRuntimeDir(); err != nil {
+		return err
+	}
+	return state.Writable(stateFile)
+}
+
+func needRuntimeDir() error {
+	if _, set := config.RuntimeDir(); !set {
+		return errors.New("RUNTIME_DIRECTORY is not set (not started by the unit)")
+	}
+	return nil
+}
+
+// beat marks the daemon alive in the runtime directory, which is RAM. Without one (or when it
+// cannot be written) the heartbeat sits next to the state file, as before 0.6.1.
+func beat(stateFile string, now time.Time) error {
+	if _, set := config.RuntimeDir(); set && state.Beat(config.RAMStateFile(), now) == nil {
+		return nil
+	}
+	return state.Beat(stateFile, now)
 }
 
 // cycleAge is the time since the last finished round; ok is false before the first one.

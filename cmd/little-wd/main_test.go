@@ -116,6 +116,15 @@ func TestStatusPrintsTheTableAndAStaleWarning(t *testing.T) {
 	if strings.Contains(out, "STALE") {
 		t.Fatalf("fresh heartbeat reported stale:\n%s", out)
 	}
+	// since 0.6.1 the daemon beats in its runtime directory (RAM), not next to the state file
+	ram := t.TempDir()
+	t.Setenv("RUNTIME_DIRECTORY", ram)
+	state.Beat(sf, time.Now().Add(-time.Hour))
+	state.Beat(filepath.Join(ram, "state.json"), time.Now())
+	out, _ = capture(t, func() error { return cmdStatus(cfg) })
+	if strings.Contains(out, "STALE") {
+		t.Fatalf("heartbeat in the runtime dir reported stale:\n%s", out)
+	}
 	os.WriteFile(sf, []byte(`{"version":1,"checks":{}}`), 0o600)
 	if out, _ = capture(t, func() error { return cmdStatus(cfg) }); !strings.Contains(out, "empty") {
 		t.Fatal(out)

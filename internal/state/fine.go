@@ -198,12 +198,13 @@ func (f *Fine) Check(id string, now time.Time) []FinePoint {
 	return out
 }
 
-// LoadFine takes the points of the file the former run left (on disk, or in /run after a restart)
+// LoadFine takes the points of the file the former run left (in /run, or next to the state file where that was not possible)
 // for the ids in valid. Whatever is not readable, or older than FineSpan, is left out.
-func (e *Engine) LoadFine(path string, valid map[string]bool, now time.Time) {
+// It reports whether the file was there to read.
+func (e *Engine) LoadFine(path string, valid map[string]bool, now time.Time) bool {
 	f, err := ReadFine(path)
 	if err != nil {
-		return
+		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -223,4 +224,5 @@ func (e *Engine) LoadFine(path string, valid map[string]bool, now time.Time) {
 			e.fine[id] = append(e.fine[id], q)
 		}
 	}
+	return true
 }

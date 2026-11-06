@@ -107,6 +107,7 @@ type Engine struct {
 	savedAt      time.Time
 	writes       int
 	Started      time.Time // daemon start, for the footprint; read it with StartedAt
+	FinePath     string    // where the fine history goes (RAM); empty or unwritable: next to the state file
 	startFixed   bool
 	Proc         func() (int64, float64) // RSS in KB and CPU seconds of this process
 	PSI          func() (float64, bool)  // worst pressure now (percent), false where the kernel has none
@@ -234,11 +235,10 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	if err := atomicWrite(path, b, ".state-*.tmp"); err != nil {
+	if err := atomicWrite(path, b, ".state-*.tmp", true); err != nil {
 		return err
 	}
-	// the fine history rides on the same write; a failure costs it only, never the state
-	atomicWrite(path+FineSuffix, fb, ".fine-*.tmp")
+	e.writeFine(path, fb)
 	e.mu.Lock()
 	e.savedAt, e.writes = now, e.writes+1
 	e.mu.Unlock()
@@ -247,6 +247,16 @@ func (e *Engine) save(path string, now time.Time) (rerr error) {
 		d.Close()
 	}
 	return nil
+}
+
+// writeFine puts the fine history in RAM (FinePath), without fsync: it means nothing after a
+// reboot and may be torn (ParseFine copes). Without a usable FinePath it goes next to the state
+// file. A failure costs the history only, never the state.
+func (e *Engine) writeFine(path string, fb []byte) {
+	if e.FinePath != "" && atomicWrite(e.FinePath, fb, ".fine-*.tmp", false) == nil {
+		return
+	}
+	atomicWrite(path+FineSuffix, fb, ".fine-*.tmp", false)
 }
 
 // Writable reports why the directory of path cannot take a new file; it leaves nothing behind.
@@ -889,19 +899,22 @@ func Beat(statePath string, now time.Time) error {
 	return syscall.Futimes(int(f.Fd()), []syscall.Timeval{tv, tv})
 }
 
-// LastBeat returns the daemon's last heartbeat; ok is false if there never was one.
-func LastBeat(statePath string) (t time.Time, ok bool) {
-	st, err := os.Stat(statePath + BeatSuffix)
-	if err != nil {
-		return time.Time{}, false
+// LastBeat returns the daemon's latest heartbeat among the given state file names (a daemon
+// beats in /run, or next to its state file where that is not possible); ok is false if there
+// never was one.
+func LastBeat(statePaths ...string) (t time.Time, ok bool) {
+	for _, p := range statePaths {
+		if st, err := os.Stat(p + BeatSuffix); err == nil && st.ModTime().After(t) {
+			t, ok = st.ModTime(), true
+		}
 	}
-	return st.ModTime(), true
+	return t, ok
 }
 
-// Stale reports a daemon whose last heartbeat is older than after
-// (config.Config.StaleAfter: interval plus the time the slowest round may take).
-func Stale(statePath string, after time.Duration, now time.Time) (age time.Duration, stale bool) {
-	t, ok := LastBeat(statePath)
+// Stale reports a daemon whose last heartbeat, at statePath or at one of alt, is older than
+// after (config.Config.StaleAfter: interval plus the time the slowest round may take).
+func Stale(statePath string, after time.Duration, now time.Time, alt ...string) (age time.Duration, stale bool) {
+	t, ok := LastBeat(append([]string{statePath}, alt...)...)
 	if !ok {
 		return 0, true
 	}
@@ -909,9 +922,9 @@ func Stale(statePath string, after time.Duration, now time.Time) (age time.Durat
 	return age, age > after
 }
 
-// atomicWrite writes b to path as temp file, fsync, rename, mode 0640. The rename replaces a
-// link at the final name instead of following it.
-func atomicWrite(path string, b []byte, pattern string) error {
+// atomicWrite writes b to path as temp file, fsync (if fsync), rename, mode 0640. The rename
+// replaces a link at the final name instead of following it.
+func atomicWrite(path string, b []byte, pattern string, fsync bool) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
 	if err != nil {
 		return err
@@ -926,9 +939,11 @@ func atomicWrite(path string, b []byte, pattern string) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+	if fsync {
+		if err := tmp.Sync(); err != nil {
+			tmp.Close()
+			return err
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return err

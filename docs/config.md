@@ -160,9 +160,10 @@ SD cards wear out, so the daemon writes little to disk. Only the state file
   `RestrictAddressFamilies=AF_INET AF_INET6`, and more) and caps it at
   `MemoryMax=64M`. Details: `contrib/little-watchdog.service`, [SECURITY.md](../SECURITY.md).
 - `sudo systemctl reload little-watchdog` re-reads the config at once.
-- The service restarts after a crash, with no start limit. The pause grows
-  from 10 s to 5 min (`RestartSteps=5`, `RestartMaxDelaySec=5min`); systemd
-  before 254 keeps 10 s.
+- The service restarts 10 s after a crash. After 5 crashes in 10 minutes systemd
+  gives up and the service shows as failed (`systemctl --failed`); start it again
+  with `sudo systemctl restart little-watchdog`. The dead-man's switch reports the
+  silence.
 
 ## Limits
 

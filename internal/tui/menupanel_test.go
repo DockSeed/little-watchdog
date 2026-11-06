@@ -112,7 +112,7 @@ func TestMenuPanelLow(t *testing.T) {
 func TestMenuNoPanelBelow120(t *testing.T) {
 	for _, sz := range [][2]int{{80, 24}, {119, 30}} {
 		r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return sz[0], sz[1] }, Proc: fakeProc(t, true)})
-		r.wait("Dead-man switch")
+		r.wait("Dead-man's switch")
 		f := r.frame()
 		rs := checkSize(t, f, sz[0], sz[1])
 		lacks(t, f, "Needs a look", "right now", "load 1/5/15")
@@ -131,7 +131,7 @@ func TestMenuPanelStale(t *testing.T) {
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: func() (int, int) { return 130, 30 }, Proc: fakeProc(t, true)})
 	r.wait("right now")
 	rs := checkSize(t, r.frame(), 130, 30)
-	has(t, rs[2], "│ Daemon not running, results may be old.")
+	has(t, rs[2], "│ Service not running, results may be old.")
 	has(t, rs[4], "│ All OK, 1 check.")
 	r.send("\x03")
 	r.finish()

@@ -73,7 +73,7 @@ func TestDaemonNotRunningBeatsInvalidConfigChip(t *testing.T) {
 	sf := writeState(t, ent{"tcp", "b", "OK", "open", 0, time.Time{}, time.Time{}})
 	state.Beat(sf, time.Now().Add(-time.Hour))
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: sized})
-	r.wait("daemon not running")
+	r.wait("service not running")
 	lacks(t, check80(t, r.frame())[0], "config invalid")
 	r.send("\x03")
 	r.finish()

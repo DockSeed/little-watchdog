@@ -26,7 +26,7 @@ func TestTempWithoutSensorIsMarkedInTheRemoveList(t *testing.T) {
 
 func TestIdleScreenIsNotRedrawn(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	time.Sleep(200 * time.Millisecond)
 	n := len(r.out.String())
 	time.Sleep(400 * time.Millisecond) // eight ticks

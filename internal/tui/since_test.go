@@ -14,7 +14,7 @@ import (
 
 func TestEscInTheMenuAsksBeforeQuitting(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("\x1b")
 	r.wait("Quit little-wd?")
 	has(t, r.frame(), "keeps running in the background", "[ Quit ]", "[ Cancel ]")
@@ -39,7 +39,7 @@ func TestSinceCountsFromTheDaemonStartAfterARestart(t *testing.T) {
 	state.Beat(sf, time.Now())
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nHTTP_PHOTOS=http://p/\n"), Size: sized})
 	r.send("\r")
-	r.wait("cpu: OK since the daemon start at " + hm(started))
+	r.wait("cpu: OK since the service start at " + hm(started))
 	rs := check80(t, r.frame())
 	has(t, rs[4], "cpu", hm(started))
 	hasAt(t, rs[6], -2*time.Hour) // a failure keeps its first failed check
@@ -70,7 +70,7 @@ func TestStatusDimsAWarmUpPlaceholder(t *testing.T) {
 
 func TestQuitDialogIgnoresLetterKeys(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("\x1bjy")
 	r.wait("Quit little-wd?")
 	time.Sleep(100 * time.Millisecond)
@@ -96,7 +96,7 @@ func TestUnstableDetailsKeepTheOKTime(t *testing.T) {
 
 func TestHelpFitsALowTerminal(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 80, 20 }})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("?")
 	r.wait("[ Close ]")
 	rs := rows(r.frame())

@@ -304,7 +304,7 @@ func (m *model) menuVal(it string) (string, sty) {
 	case "Status":
 		switch {
 		case m.snap.stale:
-			return "daemon not running", sFail
+			return "service not running", sFail
 		case len(m.snap.es) == 0:
 			return "no state yet", sBg
 		case m.snap.bad > 0 && len(m.snap.shaky) > 0:
@@ -342,7 +342,7 @@ func (m *model) menuVal(it string) (string, sty) {
 		return fmt.Sprintf("every %s, alarm after %d, all-clear after %d", every(c.Interval), c.FailAfter, c.RecoverAfter), sBg
 	case "Telegram":
 		return m.telegramValue(c, time.Now())
-	case "Dead-man switch":
+	case "Dead-man's switch":
 		return m.deadmanValue(c, time.Now())
 	}
 	return "", sBg
@@ -360,7 +360,7 @@ func (m *model) deadmanValue(c *config.Config, now time.Time) (string, sty) {
 	case c.DeadmanURL == "":
 		return "off", sBg
 	case m.snap.stale:
-		return "daemon not running", sFail
+		return "service not running", sFail
 	case mine && d.Err != "":
 		return fmt.Sprintf("last ping failed %s: %s", clock(d.ErrSince, now), d.Err), sFail
 	case mine && !d.LastOKAt.IsZero():
@@ -377,7 +377,7 @@ func (m *model) telegramValue(c *config.Config, now time.Time) (string, sty) {
 	case s.pairing:
 		return "pairing in progress", sBg
 	case s.stale:
-		return "linked, daemon not running", sFail
+		return "linked, service not running", sFail
 	case err != "" && s.pending > 0:
 		return fmt.Sprintf("%d waiting: not reachable since %s", s.pending, clock(s.tg.ErrSince, now)), sFail
 	case err != "":
@@ -397,14 +397,14 @@ func (m *model) telegramValue(c *config.Config, now time.Time) (string, sty) {
 }
 
 var about = map[string]string{
-	"Status":          "Latest result of every check.",
-	"Add check":       "Type an address: an IP or name is pinged, with a port or a path it is watched as a website. It is checked once before it is saved.",
-	"Remove check":    "Pick a check and remove it from the config.",
-	"System checks":   "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
-	"Settings":        "How often the checks run, and after how many rounds an alarm or all-clear goes out.",
-	"Telegram":        "Set up the bot token and pair your chat with a one-time code.",
-	"Dead-man switch": "Healthchecks-style URL pinged at a set time, so you notice if little-wd dies.",
-	"Quit":            "Leave the program.",
+	"Status":            "Latest result of every check.",
+	"Add check":         "Type an address: an IP or name is pinged; with a port or a path it is watched as a website. Saved at once, then checked once.",
+	"Remove check":      "Pick a check and remove it from the config.",
+	"System checks":     "Limits for this machine's own checks. Enter changes a limit, Space turns a check on or off.",
+	"Settings":          "How often the checks run, and after how many rounds an alarm or all-clear goes out.",
+	"Telegram":          "Set up the bot token and pair your chat with a one-time code.",
+	"Dead-man's switch": "Pings a Healthchecks URL at a set interval, so you hear when the watchdog dies.",
+	"Quit":              "Leave the program.",
 }
 
 type kv struct{ key, word string }
@@ -516,7 +516,7 @@ func (m *model) drawChrome(fr *frame, crumb, hint string, keys []kv, now time.Ti
 	case m.mode == modeReadOnly:
 		right = "read-only"
 	case m.snap.stale:
-		chip, chipSt = "daemon not running", sFail
+		chip, chipSt = "service not running", sFail
 	case m.snap.cfg == nil && m.snap.cfgErr != "":
 		chip, chipSt = "config invalid", sFail
 	case m.snap.cfg == nil && m.snap.es == nil:
@@ -636,7 +636,7 @@ func (m *model) drawMenu(fr *frame) string {
 		return "Telegram hands messages to one reader only: a webhook or another program has this bot. Use one bot per machine (docs/setup.md)."
 	case it == "Telegram" && m.snap.cfg != nil && m.snap.cfg.Token != "" && m.mode == modeFull:
 		return "Linked: " + checks.TokenFP(m.snap.cfg.Token) + ", chat " + fmt.Sprint(m.snap.cfg.ChatID) + ". " + about[it]
-	case it == "Dead-man switch" && m.snap.cfg != nil && m.snap.cfg.DeadmanURL != "" && m.mode == modeFull:
+	case it == "Dead-man's switch" && m.snap.cfg != nil && m.snap.cfg.DeadmanURL != "" && m.mode == modeFull:
 		return "Pinging " + checks.URLFP(m.snap.cfg.DeadmanURL) + ". " + about[it]
 	}
 	return about[menuItems[m.cur]]
@@ -701,7 +701,7 @@ func (m *model) sinceText(e state.Entry, now time.Time) string {
 	t, clamped := state.ShownSince(rep, m.started())
 	s := fmt.Sprintf("%s since %s", e.Reported, clock(t, now))
 	if clamped {
-		s = fmt.Sprintf("%s since the daemon start at %s", e.Reported, clock(t, now))
+		s = fmt.Sprintf("%s since the service start at %s", e.Reported, clock(t, now))
 		if b := clock(e.Since, now); b != clock(t, now) {
 			s += " (before that since " + b + ")"
 		}
@@ -751,7 +751,7 @@ func nameWidth(fr *frame, names func(func(string))) int {
 }
 
 // daemonDown is the hint when there is no fresh heartbeat.
-const daemonDown = "Daemon not running. Start it: sudo systemctl start little-watchdog"
+const daemonDown = "Service not running. Start it: sudo systemctl start little-watchdog"
 
 func (m *model) drawStatus(fr *frame, now time.Time) string {
 	if m.snap.cfg == nil {
@@ -760,7 +760,7 @@ func (m *model) drawStatus(fr *frame, now time.Time) string {
 	}
 	rows, ents := m.statusRows()
 	if len(ents) == 0 {
-		fr.put(0, 2, "No state yet. Is the daemon running? ("+m.snap.cfg.StateFile+")", sBg)
+		fr.put(0, 2, "No state yet. Is the service running? ("+m.snap.cfg.StateFile+")", sBg)
 		if m.snap.stale {
 			return daemonDown
 		}
@@ -989,7 +989,7 @@ func (m *model) drawDetails(fr *frame, now time.Time) {
 	vw := w - 4 - 10
 	rows := []drow{lab("Type", e.Type, sDlg)}
 	if s, ok := m.target(e); ok {
-		rows = append(rows, labWrap(lab, "Target", s.Target, vw)...)
+		rows = append(rows, labWrap(lab, "Address", s.Target, vw)...)
 		if s.Contains != "" {
 			rows = append(rows, labWrap(lab, "Text", s.Contains, vw)...)
 		}
@@ -1248,8 +1248,8 @@ func (m *model) drawHelp(fr *frame) {
 		line("State: [OK] [FAIL], [2/3] = 2 of 3 tries failed, [?] = no", sDlg),
 		line("result yet. back 1/2 = 1 of 2 good tries after a FAIL.", sDlg),
 		line("Checked: time of the last result. Since: when that state", sDlg),
-		line("began (an OK at most since the daemon start).", sDlg),
-		line("Settings changes apply after you confirm, within one interval.", sDlg),
+		line("began (an OK at most since the service start).", sDlg),
+		line("Changed settings apply within one round after you save.", sDlg),
 	}
 	if len(rows)+len(text)+4 <= fr.ih { // a low terminal gets the keys only
 		rows = append(rows, text...)

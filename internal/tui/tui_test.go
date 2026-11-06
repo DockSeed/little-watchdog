@@ -289,7 +289,7 @@ func fixture(t *testing.T) (cfg string) {
 
 func TestMenu80(t *testing.T) { // main menu
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	rs := check80(t, r.frame())
 	has(t, rs[0], "little-wd", "1 FAIL")
 	lacks(t, rs[0], "›")
@@ -299,7 +299,7 @@ func TestMenu80(t *testing.T) { // main menu
 	has(t, rs[4], "Remove check", "8 checks")
 	has(t, rs[5], "System checks", "4 on")
 	has(t, rs[7], "Telegram", "linked, nothing sent yet")
-	has(t, rs[8], "Dead-man switch", "every 2m")
+	has(t, rs[8], "Dead-man's switch", "every 2m")
 	has(t, rs[19], "╰", "╯")
 	has(t, rs[20], "Latest result of every check. Checks run every 1m.")
 	has(t, rs[22], "↑↓ move", "Enter open", "Q quit", "? help")
@@ -358,7 +358,7 @@ func TestDetails80(t *testing.T) { // details dialog
 	r.wait("[ Close ]")
 	f := r.frame()
 	rs := check80(t, f)
-	has(t, f, "photos", "Type", "Target", "http://192.0.2.12:2283/", "FAIL since", "(3 of 3 tries)", "connection refused", "Telegram", "sent at")
+	has(t, f, "photos", "Type", "Address", "http://192.0.2.12:2283/", "FAIL since", "(3 of 3 tries)", "connection refused", "Telegram", "sent at")
 	has(t, rs[4], "╭") // optical centre: 3 free rows above, 5 below
 	has(t, rs[13], "╰")
 	has(t, r.raw(), "1;38;5;203;48;5;236m")
@@ -371,11 +371,11 @@ func TestDetails80(t *testing.T) { // details dialog
 func TestAdd80(t *testing.T) { // add check dialog: one form, address first
 	r := start(t, &App{Path: fixture(t), Size: sized})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	f := r.frame()
 	rs := check80(t, f)
 	has(t, rs[0], "little-wd  › Add check")
-	has(t, f, "Address", "Name", "Checked once before saving.", "[ Check and save ]   [ Cancel ]")
+	has(t, f, "Address", "Name", "Saved at once, then checked once.", "[ Save and check ]   [ Cancel ]")
 	lacks(t, f, "Kind", "Website", "( ) Port", "URL", "Text")
 	if strings.Index(f, "Address") > strings.Index(f, "Name ") {
 		t.Fatal("Name above Address")
@@ -415,7 +415,7 @@ func TestRemoveConfirm80(t *testing.T) { // remove confirmation
 	r.wait("Remove photos?")
 	f := r.frame()
 	rs := check80(t, f)
-	has(t, f, "It is no longer checked and no longer reported.", "[ Remove ]   [ Cancel ]")
+	has(t, f, "It is no longer checked or reported.", "[ Remove ]   [ Cancel ]")
 	lacks(t, f, "turn it on again")
 	has(t, rs[22], "Tab next button", "Enter choose", "Esc cancel")
 	r.send("\t\r") // Cancel
@@ -550,7 +550,7 @@ func TestExplore80(t *testing.T) { // explore mode
 	os.Chmod(p, 0)
 	t.Cleanup(func() { os.Chmod(p, 0o600) })
 	r := start(t, &App{Path: p, Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	rs := check80(t, r.frame())
 	has(t, rs[0], "explore mode, no changes")
 	has(t, rs[3], "Add check", "locked, see the hint below")
@@ -586,7 +586,7 @@ func TestHelp80(t *testing.T) {
 	r.wait("[ Close ]")
 	f := r.frame()
 	check80(t, f)
-	has(t, f, "Keys", "move", "Esc", "Status: add a check on this host", "Since: when that state", "at most since the daemon start")
+	has(t, f, "Keys", "move", "Esc", "Status: add a check on this host", "Since: when that state", "at most since the service start")
 	r.send("\x1b")
 	r.wait("↑↓ move  Enter open")
 	lacks(t, r.frame(), "[ Close ]")
@@ -602,7 +602,7 @@ func TestASCIIFallback(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := start(t, &App{Path: fixture(t), Size: sized, Getenv: e})
-			r.wait("Dead-man switch")
+			r.wait("Dead-man's switch")
 			f := r.frame()
 			rs := check80(t, f)
 			has(t, f, "+-", "^v move", "|")
@@ -643,7 +643,7 @@ func TestASCIIMarks(t *testing.T) {
 
 func TestNoColor80(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized, Getenv: env("NO_COLOR", "1", "TERM", "xterm-256color", "LANG", "C.UTF-8")})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	check80(t, r.frame())
 	raw := r.raw()
 	lacks(t, raw, "38;5;", "48;5;", ";40m", ";46m")
@@ -658,7 +658,7 @@ func TestNoColor80(t *testing.T) {
 
 func TestSixteenColours(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized, Getenv: env("TERM", "linux", "LANG", "C.UTF-8")})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	lacks(t, r.raw(), "38;5;")
 	has(t, r.raw(), "30;46")
 	r.send("\x03")
@@ -672,7 +672,7 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	}
 	r := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN=1:a\n"), Size: sized})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send(long)
 	r.wait("end ")
 	f := r.frame()
@@ -703,7 +703,7 @@ func TestLongInputField(t *testing.T) { // long URL typed into the dialog
 	// the same in ASCII
 	r2 := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN=1:a\n"), Size: sized, Getenv: env("TERM", "vt100")})
 	r2.send("j\r")
-	r2.wait("Check and save")
+	r2.wait("Save and check")
 	r2.send(long)
 	r2.wait("end ")
 	has(t, r2.frame(), "Address   <")
@@ -736,7 +736,7 @@ func TestLongValuesDisplay(t *testing.T) {
 			}
 		}
 	}
-	flat := strings.NewReplacer(" ", "", "│", "", "Target", "", "Last", "").Replace(f)
+	flat := strings.NewReplacer(" ", "", "│", "", "Address", "", "Last", "").Replace(f)
 	flat = strings.ReplaceAll(flat, "\r\n", "")
 	if !strings.Contains(flat, url) || !strings.Contains(flat, "ENDVALUE") {
 		t.Fatalf("value cut instead of wrapped:\n%s", f)
@@ -754,7 +754,7 @@ func TestAddWebsiteAndQuit(t *testing.T) {
 	r := start(t, &App{Path: p})
 	r.wait("Add check")
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send(addr + "\rImmich Fotos ä\r")
 	r.wait("Saved as Immich Fotos ä.")
 	f := r.frame()
@@ -787,7 +787,7 @@ func TestAddFailedIsSavedAtOnce(t *testing.T) {
 	p := aliveCfg(t, "TCP_A=h:1\n")
 	r := start(t, &App{Path: p})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send(addr + "\r\r")
 	r.wait("it shows as failing until it answers.")
 	has(t, r.frame(), "✗ connection refused", "Saved as", "Next address")
@@ -805,7 +805,7 @@ func TestAddInvalidStaysInForm(t *testing.T) {
 	p := newCfg(t, "TCP_A=h:1\n")
 	r := start(t, &App{Path: p})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send("host:99999\r\r")
 	r.wait("Error: Address: port")
 	r.send("\x1b[A" + strings.Repeat("\x7f", 10) + "ftp://x\r\r")
@@ -836,7 +836,7 @@ func TestRemoveCheck(t *testing.T) {
 	r.send("\r")
 	r.wait("Remove b?")
 	r.send("y")
-	r.wait("applies it within one interval")
+	r.wait("applies it within one round")
 	if got := read(t, p); got != pre+"# keep\nHTTP_A=http://a.example/\n" {
 		t.Fatalf("%q", got)
 	}
@@ -859,12 +859,12 @@ func TestDeadman(t *testing.T) {
 	if hits.Load() != 1 || !strings.Contains(r.frame(), "Ping OK") || !strings.Contains(read(t, p), "DEADMAN_URL="+srv.URL+"/ping\n") {
 		t.Fatal(hits.Load(), r.frame())
 	}
-	r.send("x") // back to the menu (cursor stays on Dead-man switch), open it again: "off" switches it off
+	r.send("x") // back to the menu (cursor stays on Dead-man's switch), open it again: "off" switches it off
 	r.wait("every 2m")
 	r.send("\r")
 	r.wait("[ Save ]")
 	r.send("off\r\r")
-	r.wait("Dead-man switch off")
+	r.wait("Dead-man's switch off")
 	if strings.Contains(read(t, p), "DEADMAN") {
 		t.Fatal(read(t, p))
 	}
@@ -984,7 +984,7 @@ func TestSmallTerminal(t *testing.T) {
 
 func TestLargeTerminalFillsWindow(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: func() (int, int) { return 120, 40 }})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	rs := rows(r.frame())
 	if len(rs) != 40 || len([]rune(rs[1])) != 120 || !strings.HasSuffix(rs[1], "╮") || !strings.HasPrefix(rs[35], "╰") {
 		t.Fatal(r.frame())
@@ -1004,7 +1004,7 @@ func TestEscDuringCheckKeepsTheSavedCheck(t *testing.T) {
 	p := newCfg(t, orig)
 	r := start(t, &App{Path: p})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send(web.URL + "\r\r")
 	<-started
 	r.wait("Checking " + web.URL)
@@ -1107,7 +1107,7 @@ func TestAddKeepsOtherLines(t *testing.T) {
 	r := start(t, &App{Path: p})
 	r.wait("Add check")
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send(web.URL + "\rmy web\r")
 	r.wait("Saved as my web.")
 	got := read(t, p)

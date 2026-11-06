@@ -66,7 +66,7 @@ const (
 	modeExplore       // config missing or not readable
 )
 
-var menuItems = []string{"Status", "Add check", "Remove check", "System checks", "Settings", "Telegram", "Dead-man switch", "Quit"}
+var menuItems = []string{"Status", "Add check", "Remove check", "System checks", "Settings", "Telegram", "Dead-man's switch", "Quit"}
 
 func locked(item string, md mode) bool { return md != modeFull && item != "Status" && item != "Quit" }
 
@@ -388,9 +388,9 @@ func (m *model) menuKey(k Key) {
 	case k.Code == Rune && (k.R == 'q' || k.R == 'Q'):
 		m.quit = true
 	case k.Code == Esc: // Esc is "back" everywhere else, so here it asks first
-		bg := "The watchdog keeps running in the background."
+		bg := "The service keeps running in the background."
 		if m.snap.stale {
-			bg = "The watchdog is not running (see the hint below)."
+			bg = "The service is not running (see the hint below)."
 		}
 		m.cf = &confirm{title: "Quit", btns: [2]string{"Quit", "Cancel"}, noKeys: true,
 			lines:  []string{"Quit little-wd?", bg},
@@ -415,7 +415,7 @@ func (m *model) menuKey(k Key) {
 			m.settingsForm()
 		case "Telegram":
 			m.telegramForm()
-		case "Dead-man switch":
+		case "Dead-man's switch":
 			m.deadmanForm()
 		case "Quit":
 			m.quit = true
@@ -459,7 +459,7 @@ func (m *model) listKey(k Key) {
 		m.scr = scMenu
 	case k.Code == Enter && m.lcur < len(m.items):
 		it := m.items[m.lcur]
-		lines := []string{"Remove " + it.name + "?", "It is no longer checked and no longer reported."}
+		lines := []string{"Remove " + it.name + "?", "It is no longer checked or reported."}
 		if it.host {
 			lines = append(lines, "To turn it on again, put this line in the config: "+it.back)
 		}
@@ -581,8 +581,8 @@ func (m *model) newForm(title string, kinds []kindSpec, btns []string, submit fu
 // the caret waits at its end for a port or a path.
 func (m *model) addForm(host string) *form {
 	spec := kindSpec{labels: []string{"Address", "Name"}, hints: []string{addrHint, nameHint}}
-	f := m.newForm("Add check", []kindSpec{spec}, []string{"Check and save", "Cancel"}, m.addSubmit)
-	f.note = "Checked once before saving."
+	f := m.newForm("Add check", []kindSpec{spec}, []string{"Save and check", "Cancel"}, m.addSubmit)
+	f.note = "Saved at once, then checked once."
 	if host != "" {
 		f.pre = []string{addrOf(host), ""}
 		copy(f.vals, f.pre)
@@ -674,7 +674,7 @@ func (m *model) addSave(tmp *config.File) string {
 // addDone empties the form for the next address; res says what the check found.
 func (m *model) addDone(f *form, res string) {
 	if m.daemonDown() {
-		res += " The watchdog is not running: sudo systemctl start little-watchdog."
+		res += " The service is not running: sudo systemctl start little-watchdog."
 	}
 	f.res, f.err, f.idx = res, "", 0
 	for i := range f.vals {
@@ -749,7 +749,7 @@ func (m *model) telegramForm() {
 			}
 			release, perr := config.MarkPairing(m.file.Path) // the daemon pauses its own polling meanwhile
 			if perr != nil {
-				m.logf("Note: could not write %s (%v); the daemon may take the /start code before setup does.", config.PairingMarker(m.file.Path), perr)
+				m.logf("Note: could not write %s (%v); the service may take the /start code before setup does.", config.PairingMarker(m.file.Path), perr)
 			}
 			o := setup.Options{
 				Out: io.Discard, APIURL: api, PollWindow: m.a.PollWindow,
@@ -770,7 +770,7 @@ func (m *model) telegramForm() {
 					ch := make(chan bool, 1)
 					m.post(func(m *model) {
 						m.cf = &confirm{title: "Webhook", btns: [2]string{"Delete webhook", "Cancel"}, answer: func(b bool) { ch <- b },
-							lines: []string{"A webhook is set for this bot. Telegram delivers messages either to a webhook or to getUpdates, never both, so the /start code cannot arrive until it is removed. Whatever uses the webhook today will stop receiving messages.", "", p}}
+							lines: []string{"This bot has a webhook. While it is set, the /start code cannot arrive. Deleting it stops whatever uses the webhook today.", "", p}}
 					})
 					select {
 					case b := <-ch:
@@ -813,7 +813,7 @@ func (m *model) deadmanForm() {
 	if c := m.snap.cfg; c != nil {
 		ev = m.raw("DEADMAN_EVERY", every(c.DeadmanEvery))
 	}
-	f := m.newForm("Dead-man switch", []kindSpec{{labels: []string{"URL", "Every"},
+	f := m.newForm("Dead-man's switch", []kindSpec{{labels: []string{"URL", "Every"},
 		hints: []string{"Healthchecks ping URL (docs/setup.md).", "Time between pings, for example 2m. At least 60s. Set Period in Healthchecks to the same."}}},
 		[]string{"Save", "Cancel"}, func(f *form) string {
 			url := strings.TrimSpace(f.vals[0])
@@ -832,7 +832,7 @@ func (m *model) deadmanForm() {
 				return err.Error()
 			}
 			m.async(func(ctx context.Context) func(*model) {
-				res := "Dead-man switch off."
+				res := "Dead-man's switch off."
 				if url != "" {
 					res = "Ping OK."
 					if err := deadman.New(url, 0, func(string, ...any) {}).Ping(ctx, url); err != nil {
@@ -863,9 +863,9 @@ func (m *model) settingsForm() {
 	vals := []string{m.raw("INTERVAL", every(c.Interval)), m.raw("FAIL_AFTER", fmt.Sprint(c.FailAfter)),
 		m.raw("RECOVER_AFTER", fmt.Sprint(c.RecoverAfter)), m.raw("TIMEOUT", every(c.Timeout)), yesNo(c.StateInRAM)}
 	spec := kindSpec{labels: []string{"Check every", "Alarm after", "All-clear after", "Timeout per check", "State in RAM"}, hints: []string{
-		"How often every check runs, for example 60s or 5m. At least 10s, at most the cpu window (" + every(c.CPUWindow) + ", System checks).",
-		"Failed rounds in a row, then a Telegram alarm. 3 = three failed rounds in a row.",
-		"Good rounds in a row after an alarm, then the all-clear. 2 = two good rounds in a row.",
+		"How often every check runs, for example 60s or 5m. At least 10s, at most the CPU window (" + every(c.CPUWindow) + ", System checks).",
+		"Failed rounds in a row before a Telegram alarm, for example 3.",
+		"Good rounds in a row after an alarm before the all-clear, for example 2.",
 		"A check that takes longer counts as failed, for example 10s. At most 10m.",
 		"yes = keep the state in RAM, 0 disk writes. no = on disk (default).",
 	}}
@@ -900,9 +900,9 @@ func yesNo(b bool) string {
 // ramSwitchText is the one sentence on what the switch costs.
 func (m *model) ramSwitchText(ram bool) string {
 	if !ram {
-		return "The state is back on disk: it survives a reboot, at the price of about 16 writes an hour."
+		return "The state is back on disk: it survives a reboot, at about 6 writes an hour."
 	}
-	t := "The state now lives in RAM, no disk writes: a restart of the service keeps it, but a reboot loses the history and the \"since\" times, and an alarm may be sent twice."
+	t := "The state now lives in RAM, no disk writes. A service restart keeps it; a reboot loses the history and the \"since\" times, and may repeat an alarm."
 	if dir := filepath.Dir(config.RAMStateFile()); !m.daemonDown() {
 		if _, err := os.Stat(dir); err != nil {
 			t += " " + dir + " is missing: the installed unit file has no RuntimeDirectory=, so update the package first."
@@ -957,8 +957,8 @@ func (m *model) commit(tmp *config.File, msg ...string) {
 	m.file = tmp
 	m.refresh()
 	if down {
-		m.logf("Saved. The daemon does not seem to run (no recent heartbeat): start it with sudo systemctl start little-watchdog.")
+		m.logf("Saved. The service does not seem to run (no recent heartbeat): sudo systemctl start little-watchdog.")
 		return
 	}
-	m.logf("Saved — little-wd applies it within one interval.")
+	m.logf("Saved. The service applies it within one round.")
 }

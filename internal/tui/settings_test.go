@@ -19,7 +19,7 @@ const wipe = "\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f"
 func settingsRig(t *testing.T, cfg string) (*rig, string) {
 	p := aliveCfg(t, cfg)
 	r := start(t, &App{Path: p, Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("jjjj\r")
 	r.wait("Timeout per check")
 	return r, p
@@ -27,7 +27,7 @@ func settingsRig(t *testing.T, cfg string) (*rig, string) {
 
 func TestSettingsMenuSummary(t *testing.T) {
 	r := start(t, &App{Path: aliveCfg(t, "INTERVAL=5m\nFAIL_AFTER=4\n"), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	rs := check80(t, r.frame())
 	has(t, rs[5], "System checks")
 	has(t, rs[6], "Settings", "every 5m, alarm after 4, all-clear after 2")
@@ -45,9 +45,9 @@ func TestSettingsSave(t *testing.T) {
 	has(t, r.frame(), "Check every        1m", "Alarm after        3", "All-clear after    2", "Timeout per check  10s", "[ Save ]")
 	has(t, rs[20], "How often every check runs")
 	r.send("\x1b[B")
-	r.wait("Failed rounds in a row, then a Telegram alarm")
+	r.wait("Failed rounds in a row before a Telegram alarm")
 	r.send("\x1b[B")
-	r.wait("Good rounds in a row after an alarm, then the all-clear")
+	r.wait("Good rounds in a row after an alarm before the all-clear")
 	r.send("\x1b[B")
 	r.wait("counts as failed")
 	r.send("\x1b[A\x1b[A\x1b[A" + wipe + "2m\r" + wipe + "5\r\r\r\r")
@@ -56,7 +56,7 @@ func TestSettingsSave(t *testing.T) {
 	if !strings.Contains(got, "# keep\nINTERVAL=2m\nFAIL_AFTER=5\n") || strings.Contains(got, "RECOVER_AFTER") || strings.Contains(got, "TIMEOUT") {
 		t.Fatalf("%q\n%s", got, r.frame()) // unchanged values are not written
 	}
-	has(t, r.frame(), "Settings saved to ", "applies it within one interval")
+	has(t, r.frame(), "Settings saved to ", "applies it within one round")
 	r.send("x")
 	r.wait("every 2m, alarm after 5, all-clear after 2")
 	r.send("\x03")
@@ -112,7 +112,7 @@ func TestSettingsLocked(t *testing.T) {
 
 func TestSettings60x20(t *testing.T) {
 	r := start(t, &App{Path: aliveCfg(t, ""), Size: func() (int, int) { return 60, 20 }})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	check(t, r.frame(), 60, 20)
 	r.send("jjjj\r")
 	r.wait("Timeout per check")
@@ -216,7 +216,7 @@ func TestSettingsStateInRAMSwitch(t *testing.T) {
 	if got := read(t, p); !strings.HasSuffix(got, "# keep\nSTATE_IN_RAM=yes\n") {
 		t.Fatalf("%q", got)
 	}
-	has(t, r.frame(), "The state now lives in RAM", "a reboot loses the history", "alarm may be sent", "RuntimeDirectory=", "applies it within one interval")
+	has(t, r.frame(), "The state now lives in RAM", "a reboot loses the history", "and may repeat an", "RuntimeDirectory=", "applies it within one round")
 	r.send("\x03")
 	r.finish()
 
@@ -228,7 +228,7 @@ func TestSettingsStateInRAMSwitch(t *testing.T) {
 	if got := read(t, p); !strings.HasSuffix(got, "STATE_IN_RAM=no\n") {
 		t.Fatalf("%q", got)
 	}
-	has(t, r.frame(), "back on disk", "16 writes an hour")
+	has(t, r.frame(), "back on disk", "about 6 writes")
 	r.send("\x03")
 	r.finish()
 }
@@ -246,7 +246,7 @@ func TestSettingsStateInRAMRejectsJunk(t *testing.T) {
 }
 
 // Between saving the switch and the daemon's move the new place has no heartbeat yet: the old
-// place is read, so the screen shows the checks and no "daemon not running", both ways.
+// place is read, so the screen shows the checks and no "service not running", both ways.
 func TestSettingsSwitchWindowIsNoFalseAlarm(t *testing.T) {
 	ram := t.TempDir()
 	t.Setenv("RUNTIME_DIRECTORY", ram)
@@ -256,7 +256,7 @@ func TestSettingsSwitchWindowIsNoFalseAlarm(t *testing.T) {
 	lacks(t, r.frame(), "does not seem to run")
 	r.send("x")
 	r.wait("every 1m")
-	lacks(t, r.frame(), "daemon not running")
+	lacks(t, r.frame(), "service not running")
 	r.send("\x03")
 	r.finish()
 
@@ -264,7 +264,7 @@ func TestSettingsSwitchWindowIsNoFalseAlarm(t *testing.T) {
 	sf := filepath.Join(ram, "state.json")
 	state.Beat(sf, time.Now())
 	r = start(t, &App{Path: newCfg(t, "STATE_IN_RAM=yes\nSTATE_FILE="+filepath.Join(t.TempDir(), "disk.json")+"\n"), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("jjjj\r")
 	r.wait("Timeout per check")
 	r.send("\x1b[B\x1b[B\x1b[B\x1b[B" + wipe + "no\r")
@@ -272,7 +272,7 @@ func TestSettingsSwitchWindowIsNoFalseAlarm(t *testing.T) {
 	lacks(t, r.frame(), "does not seem to run")
 	r.send("x")
 	r.wait("every 1m")
-	lacks(t, r.frame(), "daemon not running")
+	lacks(t, r.frame(), "service not running")
 	r.send("\x03")
 	r.finish()
 	_ = p

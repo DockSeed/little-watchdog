@@ -104,7 +104,7 @@ func (m *model) drawLook(fr *frame, now time.Time) {
 func (m *model) lookBlock(now time.Time, w int) (rs []prow) {
 	_, ents := m.statusRows()
 	if m.snap.stale {
-		rs = append(rs, prow{{"Daemon not running, results may be old.", sFail}}, nil)
+		rs = append(rs, prow{{"Service not running, results may be old.", sFail}}, nil)
 	}
 	const ind = 7 // under the name, after "[FAIL] "
 	vw := max(w-ind, 1)
@@ -241,7 +241,7 @@ func (m *model) checkBlock(now time.Time, w, n int, curves bool) (rs []prow) {
 	rs = append(rs, prow{{e.Name, sCat}})
 	rs = append(rs, labRows("Type", lw, []string{e.Type}, sBg)...)
 	if s, ok := m.target(e); ok && s.Target != "" {
-		rs = append(rs, labRows("Target", lw, wrapAll(shortTarget(s.Target), vw, min(n, 2)), sBg)...)
+		rs = append(rs, labRows("Address", lw, wrapAll(shortTarget(s.Target), vw, min(n, 2)), sBg)...)
 	}
 	st := m.sinceText(e, now)
 	if e.Reported == checks.FAIL {

@@ -123,7 +123,7 @@ func TestGroupsWithThePanel(t *testing.T) {
 		t.Fatalf("separator gone on the host line: %q", rs[7])
 	}
 	r.send("jj")
-	r.wait("Target    http://127.0.0.1:1/")
+	r.wait("Address   http://127.0.0.1:1/")
 	r.send("\x03")
 	r.finish()
 }

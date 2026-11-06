@@ -20,12 +20,12 @@ func TestSavedSaysSoWhenNoDaemonRuns(t *testing.T) {
 	p := newCfg(t, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n") // default state file: no heartbeat
 	r := start(t, &App{Path: p})
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	web := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer web.Close()
 	r.send(web.URL + "\r\r")
 	r.wait("start little-watchdog.")
-	lacks(t, r.frame(), "applies it within one interval")
+	lacks(t, r.frame(), "applies it within one round")
 	r.send("\x03")
 	r.finish()
 }
@@ -34,8 +34,8 @@ func TestHeaderAndStatusSayStaleDaemon(t *testing.T) {
 	sf := writeState(t, ent{"tcp", "b", "OK", "open", 0, time.Time{}, time.Time{}})
 	state.Beat(sf, time.Now().Add(-time.Hour))
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: sized})
-	r.wait("daemon not running")
-	has(t, r.frame(), "Status      ", "daemon not running")
+	r.wait("service not running")
+	has(t, r.frame(), "Status      ", "service not running")
 	r.send("\x03")
 	r.finish()
 
@@ -45,7 +45,7 @@ func TestHeaderAndStatusSayStaleDaemon(t *testing.T) {
 	state.Beat(filepath.Join(ram, "state.json"), time.Now())
 	r = start(t, &App{Path: newCfg(t, "STATE_FILE="+sf+"\nTCP_B=h:1\n"), Size: sized})
 	r.wait("Status      ")
-	lacks(t, r.frame(), "daemon not running")
+	lacks(t, r.frame(), "service not running")
 	r.send("\x03")
 	r.finish()
 }
@@ -56,7 +56,7 @@ func TestSaveRefusedWhenFileChangedUnderneath(t *testing.T) {
 	r.wait("Add check")
 	os.WriteFile(p, []byte("TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\nHTTP_X=http://x/\n"), 0o600) // an editor
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	web := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer web.Close()
 	r.send(web.URL + "\ry\r")
@@ -121,7 +121,7 @@ func TestStatusSaysHowToStartAStoppedDaemon(t *testing.T) {
 	r.wait("sudo systemctl start little-watchdog") // hint under the menu
 	r.send("\r")
 	r.wait("Services")
-	has(t, r.frame(), "Daemon not running", "sudo systemctl start little-watchdog")
+	has(t, r.frame(), "Service not running", "sudo systemctl start little-watchdog")
 	r.send("\x03")
 	r.finish()
 }

@@ -44,7 +44,7 @@ func TestAddOnAGroupFillsInTheHost(t *testing.T) {
 	r.send("jjj") // cpu, dns, web, box
 	r.wait("box: OK")
 	r.send("a")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	waitRaw(t, r, `127\.0\.0\.1`+caretSGR+` `) // caret right after the host
 	f := r.frame()
 	check80(t, f)
@@ -68,7 +68,7 @@ func TestAddWithoutAHostStartsEmpty(t *testing.T) {
 	r.send("\r")
 	r.wait("cpu: OK")
 	r.send("a") // cpu has no address
-	r.wait("Check and save")
+	r.wait("Save and check")
 	if !regexp.MustCompile(`Address\s+` + caretSGR + ` `).MatchString(sgrKeep(r.raw())) {
 		t.Fatalf("address not empty:\n%s", r.frame())
 	}
@@ -78,7 +78,7 @@ func TestAddWithoutAHostStartsEmpty(t *testing.T) {
 	r.send("j") // dns: alone on h, its host is filled in all the same
 	r.wait("dns: OK")
 	r.send("A")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	waitRaw(t, r, `h`+caretSGR+` `)
 	r.send("\x1b")
 	r.wait("Enter details")
@@ -105,7 +105,7 @@ func TestAddFromStatusIsLockedReadOnly(t *testing.T) {
 	r.wait("cpu: OK")
 	r.send("jja")
 	r.wait(wantGroup)
-	lacks(t, r.frame(), "Check and save")
+	lacks(t, r.frame(), "Save and check")
 	r.send("\x03")
 	r.finish()
 }

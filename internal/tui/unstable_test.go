@@ -29,7 +29,7 @@ func shaky(t *testing.T) string {
 
 func TestStatusListShowsIntermediateStates(t *testing.T) {
 	r := start(t, &App{Path: newCfg(t, "STATE_FILE="+shaky(t)+"\nHTTP_NAS=http://b/\nHTTP_PHOTOS=http://p/\nTCP_DNS=h:53\n"), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	rs := check80(t, r.frame())
 	has(t, rs[2], "Status", "1 FAIL: photos, 1 unstable")
 	has(t, rs[0], "1 FAIL")

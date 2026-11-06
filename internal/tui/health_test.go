@@ -46,7 +46,7 @@ func TestTelegramMenuValue(t *testing.T) {
 	}{
 		{"no token", "", "", "", "not set up", true, false},
 		{"pairing", "", "", "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "pairing in progress", true, true},
-		{"stale", "", "", "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "linked, daemon not running", false, false},
+		{"stale", "", "", "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "linked, service not running", false, false},
 		{"waiting", `{"err":"timeout","err_since":"` + ts + `"}`, `,"pending":["a","b"]`, "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "2 waiting: not reachable since " + hm(ago), true, false},
 		{"failed", `{"err":"timeout","err_since":"` + ts + `","err_at":"` + fresh + `"}`, "", "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "last send failed " + hm(freshT), true, false},
 		{"old failure, nothing waits", `{"err":"timeout","err_since":"` + ts + `"}`, "", "TELEGRAM_TOKEN=1:a\nTELEGRAM_CHAT_ID=5\n", "linked, a send failed " + hm(ago) + ", none since", true, false},
@@ -155,7 +155,7 @@ func TestDeadmanMenuValueAndHeader(t *testing.T) {
 		beat                          bool
 	}{
 		{"off", "", "", "off", "all OK", true},
-		{"stale", url, "", "daemon not running", "daemon not running", false},
+		{"stale", url, "", "service not running", "service not running", false},
 		{"no ping", url, "", "every 2m, no ping yet", "all OK", true},
 		{"ok", url, `{"url_fp":"` + fp + `","last_ok_at":"` + ts + `"}`, "every 2m, last ping " + hm(ago), "all OK", true},
 		{"failing", url, `{"url_fp":"` + fp + `","err":"HTTP 404","err_since":"` + ts + `"}`, "last ping failed " + hm(ago) + ": HTTP 404", "Dead-man ping failing", true},
@@ -174,7 +174,7 @@ func TestDeadmanMenuValueAndHeader(t *testing.T) {
 				cfg += "DEADMAN_URL=" + c.url + "\n"
 			}
 			r := start(t, &App{Path: newCfg(t, cfg), Size: sized})
-			r.wait("Dead-man switch")
+			r.wait("Dead-man's switch")
 			r.wait(c.want)
 			has(t, check80(t, r.frame())[0], c.header)
 			if strings.Contains(r.out.String(), "ping-abcdef123456") {

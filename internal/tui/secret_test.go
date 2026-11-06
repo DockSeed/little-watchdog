@@ -30,7 +30,7 @@ func TestSecretsNeverFullyShown(t *testing.T) {
 	defer web.Close()
 	url := web.URL + "/" + fakeKey
 	r := start(t, &App{Path: newCfg(t, "TELEGRAM_TOKEN="+fakeTok+"\nTELEGRAM_CHAT_ID=5\nDEADMAN_URL="+url+"\n"), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	r.send("jjjjj") // Telegram: the hint names the token
 	r.wait("Linked: bot 123456789, …x7Q2, chat 5")
 	r.send("j")

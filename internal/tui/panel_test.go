@@ -99,14 +99,14 @@ func TestStatusPanel130(t *testing.T) {
 	}
 	// cursor moves change block 1, the table keeps its cursor bar
 	r.send("jjjjjj") // cpu, disk, temperature, dns, router, then 192.0.2.12: nextcloud, photos
-	r.wait("Target    http://192.0.2.12:2283/")
+	r.wait("Address   http://192.0.2.12:2283/")
 	f = r.frame()
 	has(t, f, "photos: failing since", "State     FAIL since", "(3 of 3 tries)", "Result    dial tcp 192.0.2.12:2283:", "Telegram  last message")
 	lacks(t, f, "Type      cpu")
 	has(t, r.raw(), "1;38;5;203;48;5;234mFAIL") // FAIL in the panel is red
 	r.send("kkk")
 	r.wait("Type      tcp")
-	has(t, r.frame(), "Target    h:53", "Telegram  no message yet")
+	has(t, r.frame(), "Address   h:53", "Telegram  no message yet")
 	r.send("?")
 	r.wait("[ Close ]")
 	has(t, r.frame(), "From 120 columns a panel on the right shows this machine, and", "what needs a look (menu) or the selected check (Status).")
@@ -162,7 +162,7 @@ func TestStatusPanelLow(t *testing.T) {
 	}{{24, true, "connection refused"}, {19, false, "connection refused"}, {22, true, "connect:~"}} {
 		r := start(t, &App{Path: footFixture(t), Size: func() (int, int) { return 130, c.h }, Proc: fakeProc(t, true)})
 		r.send("\rjjjjjj")
-		r.wait("Target    http://192.0.2.12:2283/")
+		r.wait("Address   http://192.0.2.12:2283/")
 		f := r.frame()
 		rs := checkSize(t, f, 130, c.h)
 		has(t, f, "Telegram  last message", c.result)

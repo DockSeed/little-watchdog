@@ -85,9 +85,8 @@ func Pair(ctx context.Context, o Options) (token string, chat int64, err error) 
 		return "", 0, fmt.Errorf("getWebhookInfo: %w", err)
 	}
 	if wh != "" {
-		fmt.Fprintln(out, "A webhook is set for this bot. Telegram delivers messages either to a webhook or to getUpdates, never both,")
-		fmt.Fprintln(out, "so little-watchdog cannot receive your /start code until the webhook is removed.")
-		fmt.Fprintln(out, "Whatever uses the webhook today will stop receiving messages.")
+		fmt.Fprintln(out, "This bot has a webhook. While it is set, the /start code cannot arrive.")
+		fmt.Fprintln(out, "Deleting it stops whatever uses the webhook today.")
 		ok, err := o.Confirm("Delete the webhook now?")
 		if err != nil {
 			return "", 0, err
@@ -171,7 +170,7 @@ func TestText(host string) string {
 func explain409(err error) error {
 	var ae *telegram.APIError
 	if errors.As(err, &ae) && ae.Code == 409 {
-		return errors.New("Telegram answered 409 (conflict): a webhook is set or another program polls this bot (a second little-watchdog, another bot framework). The running little-wd daemon steps aside while this setup runs; anything else you must stop, or use a separate bot, then try again")
+		return errors.New("Telegram answered 409 (conflict): a webhook or another program (a second little-watchdog, a bot framework) uses this bot. The little-watchdog service here pauses during setup; stop the other program or use a separate bot, then try again")
 	}
 	return err
 }

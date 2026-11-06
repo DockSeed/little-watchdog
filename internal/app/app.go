@@ -123,7 +123,7 @@ func (a *App) newDM(cfg *config.Config) *deadman.Switch {
 	dm.OnPing = func(err error) {
 		now := a.Now()
 		if a.Eng.NoteDeadman(checks.URLFP(url), err, now) {
-			a.notify(telegram.Msg(a.Host, fmt.Sprintf("dead-man switch is active, first ping OK at %s. If the pings stop, Healthchecks alarms you.", now.Format("15:04"))))
+			a.notify(telegram.Msg(a.Host, fmt.Sprintf("dead-man's switch is active, first ping OK at %s. If the pings stop, Healthchecks alarms you.", now.Format("15:04"))))
 		}
 	}
 	return dm
@@ -269,7 +269,7 @@ func (a *App) saveState(force bool) {
 }
 
 // endCycle marks a finished round: the heartbeat (the loop runs, whether or not
-// the state could be saved) and the time the dead-man switch looks at.
+// the state could be saved) and the time the dead-man's switch looks at.
 func (a *App) endCycle() {
 	a.Eng.FixStart()
 	a.tgMu.Lock()
@@ -353,7 +353,7 @@ func (a *App) Check(ctx context.Context) {
 	a.endCycle()
 }
 
-// Deliver sends pending messages, saves the state and pings the dead-man switch.
+// Deliver sends pending messages, saves the state and pings the dead-man's switch.
 func (a *App) Deliver(ctx context.Context) {
 	a.flushNotes(ctx)
 	a.flush(ctx)
@@ -367,11 +367,11 @@ func (a *App) PingDeadman(ctx context.Context) {
 	// what it is for. No finished round within the longest a round may take (plus
 	// two intervals): stay silent, the service alarms after its grace time.
 	if age, ok := a.cycleAge(); ok && age > 2*cfg.Interval+cfg.RoundMax()+30*time.Second {
-		a.Log.Printf("warning: no finished round for %s, not pinging the dead-man switch", age.Round(time.Second))
+		a.Log.Printf("warning: no finished round for %s, not pinging the dead-man's switch", age.Round(time.Second))
 		return
 	}
 	if dm.Cycle(ctx, a.probe) {
-		a.Log.Printf("warning: %d Telegram sends failed in a row, dead-man switch told /fail", deadman.Threshold)
+		a.Log.Printf("warning: %d Telegram sends failed in a row, dead-man's switch told /fail", deadman.Threshold)
 	}
 }
 

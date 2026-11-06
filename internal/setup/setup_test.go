@@ -233,7 +233,7 @@ func TestPairFailurePaths(t *testing.T) {
 		t.Fatalf("confirm error: %v", err)
 	}
 	f.Set(func(f *testfake.Telegram) { f.Webhook = ""; f.Fail409 = true })
-	if _, _, err := Pair(context.Background(), base()); err == nil || !strings.Contains(err.Error(), "409") || !strings.Contains(err.Error(), "daemon steps aside") {
+	if _, _, err := Pair(context.Background(), base()); err == nil || !strings.Contains(err.Error(), "409") || !strings.Contains(err.Error(), "service here pauses during setup") {
 		t.Fatalf("409: %v", err)
 	}
 	f.Set(func(f *testfake.Telegram) { f.Fail409 = false; f.FailCode = 500 }) // the test message fails

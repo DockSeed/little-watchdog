@@ -113,7 +113,7 @@ func TestStatusPanelCurves(t *testing.T) {
 	has(t, f, "Type      http", "Up 24 h   ", "Time 24 h ", " avg 3", "100%")
 	lacks(t, f, "Type      cpu")
 	r.send("j") // photos: failing since two hours
-	r.wait("Target    http://192.0.2.12:2283/")
+	r.wait("Address   http://192.0.2.12:2283/")
 	f = r.frame()
 	has(t, f, "Up 24 h   ", "91.6%", "Time 24 h ", "avg 100 ms")
 	has(t, r.raw(), "▇")

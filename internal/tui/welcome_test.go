@@ -22,7 +22,7 @@ func TestWelcomeOnFirstStartOnly(t *testing.T) {
 	r.finish()
 	for _, body := range map[string]string{"checks": "PING_A=192.0.2.1\n", "empty file": "\n"} {
 		r := start(t, &App{Path: newCfg(t, body), Size: sized})
-		r.wait("Dead-man switch")
+		r.wait("Dead-man's switch")
 		lacks(t, r.frame(), "Welcome to", "⣀")
 		r.send("\x03")
 		r.finish()
@@ -34,7 +34,7 @@ func TestWelcomeLeadsToAddressThenTelegram(t *testing.T) {
 	r := start(t, &App{Path: p, Size: sized})
 	r.wait("Welcome to")
 	r.send("\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	has(t, r.frame(), "Address")
 	r.send("127.0.0.1\r\r") // address, name; the ping may fail, the check stays saved
 	r.wait("Saved as")
@@ -44,7 +44,7 @@ func TestWelcomeLeadsToAddressThenTelegram(t *testing.T) {
 	r.send("\x1b")
 	r.wait("Bot token") // Telegram setup, as before
 	r.send("\x1b")
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	has(t, r.frame(), "Status")
 	lacks(t, r.frame(), "Welcome to")
 	r.send("q")
@@ -60,7 +60,7 @@ func TestWelcomeSkipAndCancelGoToTelegram(t *testing.T) {
 	r = start(t, &App{Path: etcPath(t), Size: sized})
 	r.wait("Welcome to")
 	r.send("\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	r.send("\x1b") // Esc in the address form
 	r.wait("Bot token")
 	r.send("\x03")
@@ -150,7 +150,7 @@ func TestWelcomeSmallTerminalDropsTheDog(t *testing.T) {
 
 func TestDogOnlyOnTheWelcomeScreen(t *testing.T) {
 	r := start(t, &App{Path: fixture(t), Size: sized})
-	r.wait("Dead-man switch")
+	r.wait("Dead-man's switch")
 	for _, keys := range []string{"", "\r", "\x1b?", "\x1b"} {
 		r.send(keys)
 		time.Sleep(100 * time.Millisecond)

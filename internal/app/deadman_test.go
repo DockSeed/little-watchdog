@@ -114,7 +114,7 @@ func TestDeadmanStaysSilentWhenNoRoundFinishes(t *testing.T) {
 	}
 	fk.Advance(time.Hour) // the loop stands still (hung save, stuck check): the switch must say nothing
 	a.PingDeadman(ctx)
-	if len(paths) != 1 || !strings.Contains(buf.String(), "not pinging the dead-man switch") {
+	if len(paths) != 1 || !strings.Contains(buf.String(), "not pinging the dead-man's switch") {
 		t.Fatalf("%v\n%s", paths, buf.String())
 	}
 	a.Check(ctx) // the loop lives again
@@ -135,7 +135,7 @@ func TestDeadmanFirstPingMessage(t *testing.T) {
 	ctx := context.Background()
 	active := func() (n int) {
 		for _, s := range f.Texts() {
-			if strings.HasPrefix(s, "<b>testhost</b>: dead-man switch is active, first ping OK at ") && strings.HasSuffix(s, ". If the pings stop, Healthchecks alarms you.") {
+			if strings.HasPrefix(s, "<b>testhost</b>: dead-man's switch is active, first ping OK at ") && strings.HasSuffix(s, ". If the pings stop, Healthchecks alarms you.") {
 				n++
 			}
 		}

@@ -19,7 +19,7 @@ func addRig(t *testing.T, a *App) *rig {
 	a.Size = sized
 	r := start(t, a)
 	r.send("j\r")
-	r.wait("Check and save")
+	r.wait("Save and check")
 	return r
 }
 
@@ -58,8 +58,8 @@ func TestCaretOnlyInTheFocusedField(t *testing.T) {
 	if carets(r.raw()) != 1 || regexp.MustCompile(`ab`+caretSGR).MatchString(r.raw()) {
 		t.Fatalf("caret stays in the Address field: %q", r.raw())
 	}
-	r.send("\x1b[B") // Check and save: a button
-	r.wait("[ Check and save ]")
+	r.send("\x1b[B") // Save and check: a button
+	r.wait("[ Save and check ]")
 	for i := 0; i < 400 && carets(r.raw()) != 0; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
